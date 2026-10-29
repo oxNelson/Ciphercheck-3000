@@ -1,0 +1,139 @@
+SOFTWARE REQUIREMENTS SPECIFICATION (SRS)
+
+Project: CipherCheck — Password Security Auditor
+
+1. PROJECT OVERVIEW
+
+Project Name: CipherCheck
+Category: Cybersecurity
+Application Type: Client-side web application
+
+Purpose:
+
+CipherCheck is a password security auditing tool that evaluates password strength, identifies predictable patterns, explains weaknesses, and generates stronger passwords.
+
+All password analysis must happen locally in the browser. The application must not transmit or store entered passwords.
+
+The application must produce evidence-based results using explicitly implemented rules. It must not claim to detect compromised passwords without a genuine breach-checking integration.
+
+2. TECHNOLOGY REQUIREMENTS
+
+Use:
+
+- HTML5 for structure.
+- CSS3 for styling.
+- Vanilla JavaScript for functionality.
+- Web Crypto API for secure password generation.
+- GitHub for source-code management.
+- Netlify for static website deployment.
+
+Use browser localStorage only for non-sensitive preferences if necessary.
+
+Do not introduce:
+
+- React or other frameworks.
+- Node.js or a backend.
+- Databases.
+- User authentication.
+- Paid APIs.
+- External AI integrations.
+- Build tools or package installations.
+- Unnecessary external libraries.
+
+The application must work as a static website without requiring server-side processing.
+
+3. PROJECT STRUCTURE
+
+Keep the project simple and organised:
+
+- "index.html"
+- "style.css"
+- "script.js"
+- "README.md"
+
+Do not create unnecessary files or duplicate components.
+
+4. FUNCTIONAL REQUIREMENTS
+
+FR-01: Password Strength Analysis
+
+Users must be able to enter a password and request an analysis.
+
+Evaluate the following characteristics:
+
+- Password length.
+- Character variety.
+- Repeated characters.
+- Sequential character patterns.
+- Common predictable patterns, such as "123456" and "qwerty".
+- Common words and simple password constructions.
+- Repeated sequences, such as "abcabc".
+
+Use explicit, documented rules. Do not invent results or claim to have checked a password against databases that are not available.
+
+Password length and character variety alone must not determine the entire assessment.
+
+FR-02: Strength Classification
+
+Display one of five classifications:
+
+- Very Weak.
+- Weak.
+- Fair.
+- Strong.
+- Very Strong.
+
+Calculate the classification using a documented scoring system.
+
+Requirements:
+
+- Define the scoring rules and thresholds.
+- Ensure identical inputs produce consistent results.
+- Update the results when the password changes.
+- Explain the factors influencing the classification.
+- Avoid presenting the score as a precise probability of a successful attack.
+
+The classification must reflect the implemented rules rather than an arbitrary label.
+
+FR-03: Weakness Detection
+
+Identify specific weaknesses when the corresponding rules detect them.
+
+Examples:
+
+Example password| Expected finding
+"12345678"| Predictable numeric sequence
+"password123"| Common password pattern
+"aaaaaaa!"| Excessive character repetition
+"Abcdef123!"| Sequential pattern and predictable construction
+
+These examples are illustrative, not an exhaustive detection list.
+
+For every detected weakness, display:
+
+- The weakness.
+- A concise explanation.
+- A practical recommendation.
+
+Do not report a weakness unless the implemented detection rule supports that finding.
+
+FR-04: Password Generator
+
+Provide a functional password generator with configurable options:
+
+- Password length.
+- Uppercase letters.
+- Lowercase letters.
+- Numbers.
+- Symbols.
+
+Requirements:
+
+1. Use "crypto.getRandomValues()" or an appropriate Web Crypto API method.
+2. Never use "Math.random()" for security-sensitive password generation.
+3. Respect the selected password length.
+4. Honour the selected character categories.
+5. Ensure each selected category is represented in the generated password.
+6. Reject invalid configurations, such as a length too short to include all selected categories.
+7. Allow users to copy generated passwords.
+8. Display clear feedback when copying succeeds or fails.

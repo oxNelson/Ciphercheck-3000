@@ -1,0 +1,1006 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Password Security Auditor and Secure Generator"
+    />
+    <meta property="og:title" content="CipherCheck" />
+    <meta property="og:description" content="Password Security Auditor and Secure Generator" />
+    <meta name="theme-color" content="#f4f6f3" />
+    <title>CipherCheck</title>
+    <link rel="stylesheet" href="./style.css" />
+    <script>
+      (function () {
+        try {
+          const stored = localStorage.getItem("ciphercheck-theme");
+          const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+          const theme = stored ? stored : (prefersDark ? "dark" : "light");
+          document.documentElement.setAttribute("data-theme", theme);
+          const metaTheme = document.querySelector('meta[name="theme-color"]');
+          if (metaTheme) {
+            metaTheme.setAttribute("content", theme === "dark" ? "#0f1411" : "#f4f6f3");
+          }
+        } catch (_) {}
+      })();
+    </script>
+    <script src="./script.js" defer></script>
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="topbar">
+        <a class="brand" href="./" aria-label="CipherCheck home">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 32 32" fill="none">
+              <path
+                d="M16 3.5 27 7.7v7.2c0 7.1-4.5 11.8-11 13.6C9.5 26.7 5 22 5 14.9V7.7L16 3.5Z"
+                stroke="currentColor"
+                stroke-width="1.7"
+              />
+              <path
+                d="m11.8 15.7 2.8 2.8 5.8-6.2"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="1.8"
+              />
+            </svg>
+          </span>
+          <span class="brand-name">cipher<span>check</span></span>
+        </a>
+
+        <div class="topbar-actions">
+          <div class="privacy-pill">
+            <span class="privacy-dot" aria-hidden="true"></span>
+            <span>Analysis stays in this browser</span>
+          </div>
+
+          <button
+            class="theme-toggle"
+            id="themeToggle"
+            type="button"
+            aria-label="Switch to dark theme"
+            title="Toggle light and dark theme"
+            data-testid="button-theme-toggle"
+          >
+            <span class="theme-icon-wrap" aria-hidden="true">
+              <svg class="sun-icon" viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="12" r="4.5" stroke="currentColor" stroke-width="1.8" />
+                <path d="M12 2v2.5M12 19.5V22M4.93 4.93l1.77 1.77M17.3 17.3l1.77 1.77M2 12h2.5M19.5 12H22M6.7 17.3l-1.77 1.77M19.07 4.93l-1.77 1.77" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+              </svg>
+              <svg class="moon-icon" viewBox="0 0 24 24" fill="none">
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </span>
+            <span class="theme-label" id="themeLabel">Dark</span>
+          </button>
+
+          <button
+            class="button button-auth-open"
+            id="authOpenButton"
+            type="button"
+            aria-haspopup="dialog"
+            aria-expanded="false"
+            data-testid="button-auth-open"
+          >
+            <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <circle cx="10" cy="7" r="3.2" stroke="currentColor" stroke-width="1.5" />
+              <path d="M4.5 16.5c0-3 2.5-4.5 5.5-4.5s5.5 1.5 5.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+            </svg>
+            <span id="authButtonLabel">Account</span>
+          </button>
+        </div>
+      </header>
+
+      <main>
+        <section class="intro" aria-labelledby="page-title">
+          <p class="eyebrow"><span class="eyebrow-line"></span> Password security auditor</p>
+          <h1 id="page-title">A clearer view of<br /><span>password strength.</span></h1>
+          <p class="intro-copy">
+            Check for short length, repeated characters, sequences, and common constructions.
+            Generate a stronger alternative when you need one.
+          </p>
+          <div class="privacy-note">
+            <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <rect x="4.25" y="8.5" width="11.5" height="8" rx="1.6" stroke="currentColor" stroke-width="1.4" />
+              <path d="M6.7 8.5V6.2a3.3 3.3 0 0 1 6.6 0v2.3M10 11.5v2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+            </svg>
+            <span><strong>Private by design.</strong> Passwords are neither transmitted nor saved by this app.</span>
+          </div>
+        </section>
+
+        <!-- Security Center Hub Navigation & Quick Posture Strip -->
+        <nav class="security-center-nav" id="securityCenterNav" aria-label="Security Center Tools Navigation">
+          <div class="nav-links-wrap">
+            <a href="#securityCenterPanel" class="sc-nav-btn active" id="navBtnSecurityCenter" data-target="securityCenterPanel">
+              <span class="sc-nav-icon" aria-hidden="true">
+                <svg viewBox="0 0 20 20" fill="none" width="14" height="14">
+                  <path d="M10 2.5 17 5.5v5c0 4.5-3 7.5-7 8.5-4-1-7-4-7-8.5v-5L10 2.5Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+                </svg>
+              </span>
+              <span>Security Center</span>
+              <span class="sc-badge-count" id="navRecsBadge">0</span>
+            </a>
+            <a href="#analyzerPanel" class="sc-nav-btn" id="navBtnAnalyzer" data-target="analyzerPanel">
+              <span class="sc-nav-icon" aria-hidden="true">01</span>
+              <span>Password Auditor</span>
+            </a>
+            <a href="#generatorPanel" class="sc-nav-btn" id="navBtnGenerator" data-target="generatorPanel">
+              <span class="sc-nav-icon" aria-hidden="true">02</span>
+              <span>Generator</span>
+            </a>
+            <a href="#urlPanel" class="sc-nav-btn" id="navBtnUrl" data-target="urlPanel">
+              <span class="sc-nav-icon" aria-hidden="true">03</span>
+              <span>Link Risk</span>
+            </a>
+            <a href="#dashboardPanel" class="sc-nav-btn" id="navBtnDashboard" data-target="dashboardPanel">
+              <span class="sc-nav-icon" aria-hidden="true">04</span>
+              <span>History</span>
+            </a>
+          </div>
+        </nav>
+
+        <div class="workbench">
+          <!-- Dedicated Personal Security Center Panel & Actionable Guidance -->
+          <section class="panel security-center-panel" id="securityCenterPanel" aria-labelledby="security-center-title">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-kicker">Security Center / Unified Posture &amp; Recommendations</p>
+                <h2 id="security-center-title">Personal Security Center</h2>
+              </div>
+              <div class="security-center-tags">
+                <span class="local-tag">ACTIONABLE GUIDANCE</span>
+                <span class="local-tag" id="scPrivacyTag">LOCAL PRIVACY</span>
+              </div>
+            </div>
+
+            <!-- Security Posture Summary Cards -->
+            <div class="posture-summary-grid" id="postureSummaryGrid" aria-label="Security Posture Summary">
+              <div class="posture-card" id="postureCardPassword" data-state="idle">
+                <div class="posture-card-header">
+                  <span class="posture-icon" aria-hidden="true">
+                    <svg viewBox="0 0 20 20" fill="none" width="16" height="16">
+                      <circle cx="7" cy="10" r="4.25" stroke="currentColor" stroke-width="1.5"/>
+                      <path d="M11.25 10H17m-2.5 0v2.5M17 10v2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                    </svg>
+                  </span>
+                  <span class="posture-label">Password Auditor</span>
+                </div>
+                <div class="posture-headline" id="posturePasswordHeadline">No Password Audited</div>
+                <p class="posture-detail" id="posturePasswordDetail">Enter a password below to test length, entropy, and weakness factors.</p>
+              </div>
+
+              <div class="posture-card" id="postureCardUrl" data-state="idle">
+                <div class="posture-card-header">
+                  <span class="posture-icon" aria-hidden="true">
+                    <svg viewBox="0 0 20 20" fill="none" width="16" height="16">
+                      <path d="M8.5 11.5a3.5 3.5 0 0 0 5 0l2.5-2.5a3.5 3.5 0 0 0-5-5L9.5 5.5m2 3a3.5 3.5 0 0 0-5 0l-2.5 2.5a3.5 3.5 0 0 0 5 5l1.5-1.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                    </svg>
+                  </span>
+                  <span class="posture-label">Link Risk Checker</span>
+                </div>
+                <div class="posture-headline" id="postureUrlHeadline">No Link Analyzed</div>
+                <p class="posture-detail" id="postureUrlDetail">Paste a URL below to check for credential tricks, homoglyphs, and raw IP hosts.</p>
+              </div>
+
+              <div class="posture-card" id="postureCardHistory" data-state="idle">
+                <div class="posture-card-header">
+                  <span class="posture-icon" aria-hidden="true">
+                    <svg viewBox="0 0 20 20" fill="none" width="16" height="16">
+                      <path d="M3 5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5Z" stroke="currentColor" stroke-width="1.5"/>
+                      <path d="M6 7.5h8M6 10.5h8M6 13.5h5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                    </svg>
+                  </span>
+                  <span class="posture-label">Saved Scan History</span>
+                </div>
+                <div class="posture-headline" id="postureHistoryHeadline">0 Saved Reports</div>
+                <p class="posture-detail" id="postureHistoryDetail">Save URL assessments to monitor aggregate risk patterns across sessions.</p>
+              </div>
+
+              <div class="posture-card" id="postureCardGuidance" data-state="active">
+                <div class="posture-card-header">
+                  <span class="posture-icon" aria-hidden="true">
+                    <svg viewBox="0 0 20 20" fill="none" width="16" height="16">
+                      <path d="M7 14.5h6m-4.5 2h3M10 3a5.5 5.5 0 0 0-3.5 9.7V14h7v-1.3A5.5 5.5 0 0 0 10 3Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                  </span>
+                  <span class="posture-label">Actionable Advice</span>
+                </div>
+                <div class="posture-headline" id="postureGuidanceHeadline">0 Recommendations</div>
+                <p class="posture-detail" id="postureGuidanceDetail">Prioritized steps derived from local analysis and security hygiene practices.</p>
+              </div>
+            </div>
+
+            <!-- Actionable Recommendations Header & Controls -->
+            <div class="recommendations-section" id="recommendationsSection">
+              <div class="recommendations-header-bar">
+                <div class="recs-title-wrap">
+                  <h3 class="recs-heading">Actionable Security Recommendations</h3>
+                  <p class="recs-subheading">Prioritized guidance grounded directly in your local analysis and scan results. Dismiss or mark items as addressed as you take action.</p>
+                </div>
+                <div class="recs-controls-row">
+                  <div class="recs-filter-tabs" role="tablist" aria-label="Recommendation filters">
+                    <button class="recs-tab active" id="tabRecsActive" type="button" role="tab" aria-selected="true" data-filter="active" data-testid="tab-recs-active">
+                      Active (<span id="countRecsActive">0</span>)
+                    </button>
+                    <button class="recs-tab" id="tabRecsAddressed" type="button" role="tab" aria-selected="false" data-filter="addressed" data-testid="tab-recs-addressed">
+                      Addressed (<span id="countRecsAddressed">0</span>)
+                    </button>
+                    <button class="recs-tab" id="tabRecsDismissed" type="button" role="tab" aria-selected="false" data-filter="dismissed" data-testid="tab-recs-dismissed">
+                      Dismissed (<span id="countRecsDismissed">0</span>)
+                    </button>
+                    <button class="recs-tab" id="tabRecsAll" type="button" role="tab" aria-selected="false" data-filter="all" data-testid="tab-recs-all">
+                      All (<span id="countRecsAll">0</span>)
+                    </button>
+                  </div>
+                  <button class="button button-sm button-text" id="restoreRecsBtn" type="button" title="Restore all dismissed recommendations" data-testid="button-restore-recs">
+                    Restore All
+                  </button>
+                </div>
+              </div>
+
+              <!-- Recommendations List -->
+              <ul class="recommendations-list" id="recommendationsList" aria-label="Security recommendations">
+                <!-- Dynamically populated -->
+              </ul>
+
+              <!-- Recommendations Empty State -->
+              <div class="recs-empty-state" id="recsEmptyState" style="display: none;">
+                <div class="empty-icon-wrap" aria-hidden="true">
+                  <svg viewBox="0 0 32 32" fill="none" width="32" height="32">
+                    <path d="M16 3.5 27 7.7v7.2c0 7.1-4.5 11.8-11 13.6C9.5 26.7 5 22 5 14.9V7.7L16 3.5Z" stroke="currentColor" stroke-width="1.6"/>
+                    <path d="m11.8 15.7 2.8 2.8 5.8-6.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </div>
+                <h4 id="recsEmptyTitle">All recommendations addressed</h4>
+                <p id="recsEmptyMessage">You have addressed all active recommendations in this view. As you evaluate new passwords or analyze web links, fresh actionable guidance will appear here automatically.</p>
+                <button class="button button-sm button-secondary" id="resetEmptyRecsBtn" type="button" data-testid="button-reset-empty-recs">
+                  Reset &amp; Show All Guidance
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel analyzer-panel" id="analyzerPanel" aria-labelledby="analyzer-title">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-kicker">01 / Evaluate</p>
+                <h2 id="analyzer-title">Password analysis</h2>
+              </div>
+              <span class="local-tag">LOCAL ONLY</span>
+            </div>
+
+            <div id="analyzerForm" role="group" aria-label="Password analysis">
+              <label class="field-label" for="passwordInput">Enter a password</label>
+              <div class="password-entry">
+                <input
+                  id="passwordInput"
+                  name="password"
+                  type="password"
+                  autocomplete="new-password"
+                  autocapitalize="off"
+                  spellcheck="false"
+                  required
+                  aria-describedby="passwordHint"
+                  data-testid="input-password"
+                />
+                <button class="button button-primary analyze-button" id="analyzeButton" type="button" data-testid="button-analyze">
+                  Analyze
+                  <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                    <path d="M4 10h11m-4.5-4.5L15 10l-4.5 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                </button>
+              </div>
+              <p class="field-hint" id="passwordHint">Results update as you type. The value is used only for this local check.</p>
+            </div>
+
+            <div class="analysis-results" id="analysisResults" hidden aria-live="polite">
+              <div class="result-topline">
+                <div>
+                  <p class="result-label">Rule-based assessment</p>
+                  <h3 id="strengthLabel">—</h3>
+                </div>
+                <p class="score-readout"><span id="scoreValue">0</span><span class="score-out-of"> / 100</span></p>
+              </div>
+
+              <div
+                class="strength-track strength-track-segmented"
+                id="strengthMeter"
+                role="meter"
+                aria-label="Rule-based password strength score"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                aria-valuenow="0"
+                aria-valuetext="No score"
+                data-level="none"
+                data-segments="0"
+              >
+                <span class="strength-segment" data-segment="1" aria-hidden="true"></span>
+                <span class="strength-segment" data-segment="2" aria-hidden="true"></span>
+                <span class="strength-segment" data-segment="3" aria-hidden="true"></span>
+                <span class="strength-segment" data-segment="4" aria-hidden="true"></span>
+                <span class="strength-segment" data-segment="5" aria-hidden="true"></span>
+                <span class="strength-fill" id="strengthFill"></span>
+              </div>
+
+              <dl class="score-components" aria-label="Score factors">
+                <div class="score-component">
+                  <dt>Length</dt>
+                  <dd><strong id="lengthPoints">0 / 40</strong><span id="lengthDetail">—</span></dd>
+                </div>
+                <div class="score-component">
+                  <dt>Character variety</dt>
+                  <dd><strong id="categoryPoints">0 / 20</strong><span id="categoryDetail">—</span></dd>
+                </div>
+                <div class="score-component">
+                  <dt>Unique characters</dt>
+                  <dd><strong id="uniquenessPoints">0 / 15</strong><span id="uniquenessDetail">—</span></dd>
+                </div>
+                <div class="score-component">
+                  <dt>Pattern resistance</dt>
+                  <dd><strong id="patternPoints">0 / 25</strong><span id="patternDetail">—</span></dd>
+                </div>
+              </dl>
+
+              <p class="assessment-summary" id="assessmentSummary"></p>
+
+              <div class="findings-heading">
+                <h4>Detected factors</h4>
+                <span id="findingCount">0 findings</span>
+              </div>
+              <ul class="findings-list" id="findingsList"></ul>
+
+              <details class="scoring-details">
+                <summary>How this score is calculated</summary>
+                <div class="details-copy">
+                  <p>
+                    The 0–100 score adds length (0–40), character categories (0–20), unique
+                    characters (0–15), and a pattern-resistance component (0–25). Detected
+                    weaknesses reduce the pattern-resistance component. It is a rule-based
+                    comparison, not a probability or estimate of attack time.
+                  </p>
+                  <p>
+                    Bands: Very Weak 0–19; Weak 20–39; Fair 40–64; Strong 65–84; Very Strong
+                    85–100. The rules are documented in the README.
+                  </p>
+                </div>
+              </details>
+            </div>
+
+            <p class="scope-note">
+              CipherCheck does not check breach databases. No findings does not guarantee that a password is safe.
+            </p>
+          </section>
+
+          <section class="panel generator-panel" id="generatorPanel" aria-labelledby="generator-title">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-kicker">02 / Create</p>
+                <h2 id="generator-title">Password generator</h2>
+              </div>
+              <span class="generator-mark" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <path d="M12 3v3m0 12v3M3 12h3m12 0h3M5.64 5.64l2.12 2.12m8.48 8.48 2.12 2.12m0-12.72-2.12 2.12m-8.48 8.48-2.12 2.12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                  <circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.5" />
+                </svg>
+              </span>
+            </div>
+
+            <div class="generator-controls">
+              <div class="length-row">
+                <label class="field-label" for="lengthInput">Password length</label>
+                <div class="length-input-wrap">
+                  <input
+                    id="lengthInput"
+                    class="length-input"
+                    type="number"
+                    inputmode="numeric"
+                    min="1"
+                    max="64"
+                    step="1"
+                    value="20"
+                    aria-describedby="lengthHint"
+                    data-testid="input-length"
+                  />
+                  <span>characters</span>
+                </div>
+              </div>
+              <p class="field-hint length-hint" id="lengthHint">Choose a length from 1 to 64.</p>
+
+              <fieldset class="category-fieldset">
+                <legend class="field-label">Include character types</legend>
+                <label class="category-option">
+                  <input type="checkbox" name="characterType" value="uppercase" checked data-testid="checkbox-uppercase" />
+                  <span class="checkbox-visual" aria-hidden="true"></span>
+                  <span class="category-name">Uppercase</span>
+                  <span class="category-sample">A–Z</span>
+                </label>
+                <label class="category-option">
+                  <input type="checkbox" name="characterType" value="lowercase" checked data-testid="checkbox-lowercase" />
+                  <span class="checkbox-visual" aria-hidden="true"></span>
+                  <span class="category-name">Lowercase</span>
+                  <span class="category-sample">a–z</span>
+                </label>
+                <label class="category-option">
+                  <input type="checkbox" name="characterType" value="numbers" checked data-testid="checkbox-numbers" />
+                  <span class="checkbox-visual" aria-hidden="true"></span>
+                  <span class="category-name">Numbers</span>
+                  <span class="category-sample">0–9</span>
+                </label>
+                <label class="category-option">
+                  <input type="checkbox" name="characterType" value="symbols" checked data-testid="checkbox-symbols" />
+                  <span class="checkbox-visual" aria-hidden="true"></span>
+                  <span class="category-name">Symbols</span>
+                  <span class="category-sample">! @ #</span>
+                </label>
+              </fieldset>
+            </div>
+
+            <div class="generator-actions">
+              <button class="button button-dark" id="generateButton" type="button" data-testid="button-generate">
+                <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                  <path d="M10 2.5v3m0 9v3m-7-7h3m8 0h3M5.05 5.05l2.12 2.12m5.66 5.66 2.12 2.12m0-9.9-2.12 2.12m-5.66 5.66-2.12 2.12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                  <circle cx="10" cy="10" r="3.2" stroke="currentColor" stroke-width="1.5" />
+                </svg>
+                Generate password
+              </button>
+            </div>
+
+            <div class="generated-output">
+              <label class="field-label" for="generatedPassword">Generated password</label>
+              <div class="output-row">
+                <input
+                  id="generatedPassword"
+                  class="generated-input"
+                  type="text"
+                  readonly
+                  placeholder="Your password will appear here"
+                  aria-describedby="generatorStatus"
+                  data-testid="output-generated-password"
+                />
+                <button class="button button-copy" id="copyButton" type="button" disabled data-testid="button-copy">
+                  Copy
+                </button>
+              </div>
+              <p class="generator-status" id="generatorStatus" role="status" aria-live="polite"></p>
+            </div>
+
+            <p class="generator-note">
+              Generated with the browser’s Web Crypto API. Each selected character type is included.
+            </p>
+          </section>
+
+          <!-- Tool 03 / Inspect: URL & Link Risk Checker -->
+          <section class="panel url-panel" id="urlPanel" aria-labelledby="url-panel-title">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-kicker">03 / Inspect</p>
+                <h2 id="url-panel-title">Link &amp; URL risk checker</h2>
+              </div>
+              <span class="local-tag">LOCAL ONLY</span>
+            </div>
+
+            <div id="urlCheckerForm" role="group" aria-label="URL and link risk analysis">
+              <label class="field-label" for="urlInput">Enter or paste a web address (URL)</label>
+              <div class="url-entry">
+                <input
+                  id="urlInput"
+                  name="url"
+                  type="text"
+                  autocomplete="off"
+                  autocapitalize="off"
+                  spellcheck="false"
+                  placeholder="https://example.com/login"
+                  aria-describedby="urlHint"
+                  data-testid="input-url"
+                />
+                <button class="button button-primary analyze-url-button" id="analyzeUrlButton" type="button" data-testid="button-analyze-url">
+                  Analyze Link
+                  <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                    <path d="M4 10h11m-4.5-4.5L15 10l-4.5 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                </button>
+              </div>
+              <p class="field-hint" id="urlHint">Evaluated locally in this browser. CipherCheck never visits, fetches, or contacts the submitted link.</p>
+            </div>
+
+            <div class="url-samples-row" aria-label="Sample test links">
+              <span class="samples-label">Quick test:</span>
+              <button class="sample-url-btn" type="button" data-sample="https://github.com/torvalds/linux">Clean HTTPS</button>
+              <button class="sample-url-btn" type="button" data-sample="http://192.168.1.100/admin">IP Host (HTTP)</button>
+              <button class="sample-url-btn" type="button" data-sample="https://paypal.com.verify-account.attacker.xyz/login">Subdomain Phishing</button>
+              <button class="sample-url-btn" type="button" data-sample="https://apple.com@evil-site.net/auth">@ Authority Trick</button>
+              <button class="sample-url-btn" type="button" data-sample="https://xn--pple-43d.com">Punycode</button>
+            </div>
+
+            <p class="auth-status" id="urlErrorStatus" role="alert" aria-live="polite" style="display: none;"></p>
+
+            <div class="url-results" id="urlResults" hidden aria-live="polite">
+              <div class="url-verdict-card" id="urlVerdictCard" data-verdict="clean">
+                <div class="url-verdict-header">
+                  <div class="url-verdict-badge-wrap">
+                    <span class="url-verdict-indicator" id="urlVerdictIndicator" aria-hidden="true"></span>
+                    <h3 id="urlVerdictTitle">No Obvious Red Flags Detected</h3>
+                  </div>
+                  <span class="url-finding-count" id="urlFindingCount">0 indicators detected</span>
+                </div>
+                <p class="url-verdict-summary" id="urlVerdictSummary">No suspicious structural patterns detected in the checks performed.</p>
+              </div>
+
+              <div class="url-facts-section">
+                <h4 class="section-subheading">Observed Structural Facts</h4>
+                <dl class="url-facts-grid" id="urlFactsGrid" aria-label="Observed URL facts">
+                  <!-- Dynamically populated -->
+                </dl>
+              </div>
+
+              <div class="url-findings-section" id="urlFindingsSection">
+                <div class="findings-heading">
+                  <h4>Detected Structural Indicators</h4>
+                  <span id="urlFindingsCounter">0 findings</span>
+                </div>
+                <ul class="url-findings-list" id="urlFindingsList">
+                  <!-- Dynamically populated -->
+                </ul>
+              </div>
+
+              <div class="url-actions-row">
+                <button class="button button-sm button-secondary" id="copyUrlReportBtn" type="button" data-testid="button-copy-url-report">
+                  <svg viewBox="0 0 20 20" fill="none" width="16" height="16" aria-hidden="true">
+                    <rect x="7" y="7" width="9" height="9" rx="1.5" stroke="currentColor" stroke-width="1.5" />
+                    <path d="M4 13V4.5A1.5 1.5 0 0 1 5.5 3H14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                  </svg>
+                  <span id="copyUrlReportLabel">Copy Analysis Report</span>
+                </button>
+                <button class="button button-sm button-primary" id="saveUrlReportBtn" type="button" data-testid="button-save-url-report">
+                  <svg viewBox="0 0 20 20" fill="none" width="16" height="16" aria-hidden="true">
+                    <path d="M4 3h12a1 1 0 0 1 1 1v13l-7-3.5L3 17V4a1 1 0 0 1 1-1Z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                  <span id="saveUrlReportLabel">Save Report</span>
+                </button>
+                <span class="copy-feedback-msg" id="copyUrlFeedback" aria-live="polite"></span>
+              </div>
+
+              <!-- Pre-save data retention disclosure -->
+              <div class="url-retention-notice">
+                <span class="retention-icon" aria-hidden="true">
+                  <svg viewBox="0 0 20 20" fill="none" width="16" height="16">
+                    <circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.5" />
+                    <path d="M10 9v5m0-8v1.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                  </svg>
+                </span>
+                <p>
+                  <strong>What will be retained:</strong> Saving stores this analysis in your private dashboard. The destination host, registered domain, path, and detected security indicators are saved. Sensitive query parameters (tokens, passwords, keys) and authority credentials are automatically redacted before storage.
+                </p>
+              </div>
+
+              <div class="url-disclaimer-box">
+                <div class="disclaimer-title-row">
+                  <svg viewBox="0 0 20 20" fill="none" width="16" height="16" aria-hidden="true">
+                    <circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.5" />
+                    <path d="M10 9v5m0-8v1.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                  </svg>
+                  <strong>Heuristic Scope &amp; Limitations</strong>
+                </div>
+                <p>
+                  This assessment evaluates only the syntactic and structural characteristics of the submitted link text locally in your browser.
+                  It <em>cannot</em> determine whether a server hosts malicious files, executes exploit kits, or has been compromised.
+                  HTTPS encrypts transit but does not prove authenticity. The absence of red flags does not guarantee safety.
+                </p>
+              </div>
+            </div>
+          </section>
+
+          <!-- Tool 04 / Dashboard: Security Scan History & Metrics -->
+          <section class="panel dashboard-panel" id="dashboardPanel" aria-labelledby="dashboard-title">
+            <div class="panel-heading">
+              <div>
+                <p class="panel-kicker">04 / History</p>
+                <h2 id="dashboard-title">Security scan dashboard</h2>
+              </div>
+              <span class="local-tag" id="dashboardSyncTag">ACCOUNT SYNCED</span>
+            </div>
+
+            <!-- Guest State: Shown when user is not signed in -->
+            <div class="dashboard-guest-card" id="dashboardGuestCard" style="display: none;">
+              <div class="guest-card-body">
+                <div class="guest-icon-badge" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" width="24" height="24">
+                    <rect x="3" y="11" width="18" height="11" rx="2" stroke="currentColor" stroke-width="1.7"/>
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4" stroke="currentColor" stroke-width="1.7"/>
+                  </svg>
+                </div>
+                <div>
+                  <h3>Private Security Scan History</h3>
+                  <p>Sign in or create an account to save, search, and review your URL analysis reports across sessions. All reports remain strictly private to your account.</p>
+                </div>
+              </div>
+              <button class="button button-sm button-primary" id="dashboardSignInBtn" type="button" data-testid="button-dashboard-signin">
+                Sign In / Register
+              </button>
+            </div>
+
+            <!-- Authenticated Dashboard View -->
+            <div class="dashboard-auth-content" id="dashboardAuthContent">
+              <!-- Summary Statistics Grid -->
+              <div class="dashboard-stats-grid" id="dashboardStatsGrid">
+                <div class="stat-card" data-stat="total">
+                  <span class="stat-label">Total Saved</span>
+                  <span class="stat-value" id="statTotalReports">0</span>
+                  <span class="stat-sub">Saved scans</span>
+                </div>
+                <div class="stat-card" data-stat="clean">
+                  <span class="stat-label">No Red Flags</span>
+                  <span class="stat-value" id="statCleanReports">0</span>
+                  <span class="stat-sub">Clean structure</span>
+                </div>
+                <div class="stat-card" data-stat="low">
+                  <span class="stat-label">Low Concern</span>
+                  <span class="stat-value" id="statLowReports">0</span>
+                  <span class="stat-sub">Minor anomalies</span>
+                </div>
+                <div class="stat-card" data-stat="medium">
+                  <span class="stat-label">Elevated Caution</span>
+                  <span class="stat-value" id="statMediumReports">0</span>
+                  <span class="stat-sub">Warning flags</span>
+                </div>
+                <div class="stat-card" data-stat="high">
+                  <span class="stat-label">High Risk</span>
+                  <span class="stat-value" id="statHighReports">0</span>
+                  <span class="stat-sub">Deceptive patterns</span>
+                </div>
+              </div>
+
+              <!-- Controls Bar: Filter, Search, Refresh, Clear All -->
+              <div class="dashboard-controls-bar">
+                <div class="dashboard-search-wrap">
+                  <input
+                    id="dashboardSearchInput"
+                    class="dashboard-search-input"
+                    type="text"
+                    placeholder="Search by host or URL..."
+                    aria-label="Search saved reports"
+                    autocomplete="off"
+                    data-testid="input-dashboard-search"
+                  />
+                </div>
+                <div class="dashboard-filter-group" role="group" aria-label="Filter reports by risk level">
+                  <button class="filter-chip active" type="button" data-risk="all">All</button>
+                  <button class="filter-chip" type="button" data-risk="clean">No Flags</button>
+                  <button class="filter-chip" type="button" data-risk="low">Low</button>
+                  <button class="filter-chip" type="button" data-risk="medium">Medium</button>
+                  <button class="filter-chip" type="button" data-risk="high">High</button>
+                </div>
+                <div class="dashboard-actions-group">
+                  <button class="button button-sm button-secondary" id="refreshDashboardBtn" type="button" title="Refresh saved reports" data-testid="button-dashboard-refresh">
+                    <svg viewBox="0 0 16 16" fill="none" width="13" height="13" aria-hidden="true">
+                      <path d="M13.5 8A5.5 5.5 0 1 1 9.5 3L11 4.5M11 1.5v3H8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    <span>Refresh</span>
+                  </button>
+                  <button class="button button-sm button-outline danger-btn" id="clearHistoryBtn" type="button" title="Clear all saved reports" data-testid="button-clear-history">
+                    <span>Clear All</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Reports List Container -->
+              <div class="dashboard-reports-container" id="dashboardReportsContainer">
+                <div class="dashboard-loading" id="dashboardLoading" style="display: none;">
+                  <span>Loading saved security reports...</span>
+                </div>
+
+                <!-- Empty State -->
+                <div class="dashboard-empty-state" id="dashboardEmptyState" style="display: none;">
+                  <div class="empty-icon-wrap" aria-hidden="true">
+                    <svg viewBox="0 0 32 32" fill="none" width="32" height="32">
+                      <path d="M4 8a2 2 0 0 1 2-2h6l3 3h11a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+                    </svg>
+                  </div>
+                  <h4>No saved security reports</h4>
+                  <p id="dashboardEmptyMessage">You haven’t saved any URL security assessments yet. Analyze a web link above and click "Save Report" to build your private security scan history.</p>
+                </div>
+
+                <!-- Reports List -->
+                <ul class="dashboard-reports-list" id="dashboardReportsList" aria-label="Saved security reports">
+                  <!-- Dynamically populated -->
+                </ul>
+
+                <!-- Pagination Bar -->
+                <div class="dashboard-pagination-bar" id="dashboardPaginationBar" style="display: none;">
+                  <span id="paginationInfo">Showing 0 reports</span>
+                  <div class="pagination-buttons">
+                    <button class="button button-sm button-secondary" id="prevPageBtn" type="button" disabled>Previous</button>
+                    <button class="button button-sm button-secondary" id="nextPageBtn" type="button" disabled>Next</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </main>
+
+      <footer class="footer">
+        <span>CipherCheck</span>
+        <span>Local rules. No breach lookup. No password storage.</span>
+      </footer>
+    </div>
+
+    <dialog id="authDialog" class="auth-dialog" aria-labelledby="authModalTitle">
+      <div class="auth-modal-content">
+        <div class="auth-modal-header">
+          <h3 id="authModalTitle">CipherCheck Account</h3>
+          <button id="authModalClose" class="modal-close-btn" type="button" aria-label="Close dialog">
+            <svg viewBox="0 0 20 20" fill="none" width="18" height="18" aria-hidden="true">
+              <path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+            </svg>
+          </button>
+        </div>
+
+        <div class="smtp-notice" id="smtpNotice" role="note">
+          <svg viewBox="0 0 20 20" fill="none" width="16" height="16" aria-hidden="true">
+            <circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.5" />
+            <path d="M10 6v5m0 3v.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+          </svg>
+          <span id="smtpNoticeText">Checking SMTP service configuration...</span>
+        </div>
+
+        <!-- Auth Tabs (when not logged in) -->
+        <div id="authGuestView">
+          <div class="auth-tabs" role="tablist" aria-label="Authentication Options">
+            <button id="tabLogin" class="auth-tab active" type="button" role="tab" aria-selected="true" aria-controls="panelLogin">
+              Sign In
+            </button>
+            <button id="tabRegister" class="auth-tab" type="button" role="tab" aria-selected="false" aria-controls="panelRegister">
+              Register
+            </button>
+          </div>
+
+          <!-- Login Form Panel -->
+          <div id="panelLogin" class="auth-panel" role="tabpanel" aria-labelledby="tabLogin">
+            <form id="loginForm" novalidate>
+              <div class="auth-field">
+                <label class="field-label" for="loginEmail">Email address</label>
+                <input id="loginEmail" class="auth-input" type="email" autocomplete="username" required data-testid="input-login-email" />
+              </div>
+              <div class="auth-field">
+                <label class="field-label" for="loginPassword">Password</label>
+                <input id="loginPassword" class="auth-input" type="password" autocomplete="current-password" required data-testid="input-login-password" />
+              </div>
+              <p class="auth-status" id="loginStatus" role="status" aria-live="polite"></p>
+              <button class="button button-primary auth-submit-btn" type="submit" data-testid="button-login-submit">
+                Sign In
+              </button>
+              <button class="button button-text forgot-btn" id="forgotPasswordBtn" type="button">
+                Forgot password?
+              </button>
+            </form>
+          </div>
+
+          <!-- Register Form Panel -->
+          <div id="panelRegister" class="auth-panel" role="tabpanel" aria-labelledby="tabRegister" hidden>
+            <form id="registerForm" novalidate>
+              <div class="auth-field">
+                <label class="field-label" for="registerEmail">Email address</label>
+                <input id="registerEmail" class="auth-input" type="email" autocomplete="email" required data-testid="input-register-email" />
+              </div>
+              <div class="auth-field">
+                <label class="field-label" for="registerNickname">Personal Nickname <span style="font-weight: normal; color: var(--ink-faint);">(optional, 2–30 chars)</span></label>
+                <input id="registerNickname" class="auth-input" type="text" maxlength="30" placeholder="e.g. CipherSentinel" autocomplete="nickname" data-testid="input-register-nickname" />
+              </div>
+              <div class="auth-field">
+                <label class="field-label" for="registerPassword">Password (min 8 characters)</label>
+                <input id="registerPassword" class="auth-input" type="password" autocomplete="new-password" minlength="8" required data-testid="input-register-password" />
+              </div>
+              <p class="auth-privacy-reminder">
+                Passwords tested in the analyzer workbench are never transmitted. This credential is used solely to authenticate your CipherCheck account session.
+              </p>
+              <p class="auth-status" id="registerStatus" role="status" aria-live="polite"></p>
+              <button class="button button-primary auth-submit-btn" type="submit" data-testid="button-register-submit">
+                Create Account
+              </button>
+            </form>
+          </div>
+
+          <!-- Forgot Password Panel -->
+          <div id="panelForgot" class="auth-panel" role="tabpanel" hidden>
+            <form id="forgotForm" novalidate>
+              <div class="auth-field">
+                <label class="field-label" for="forgotEmail">Account Email address</label>
+                <input id="forgotEmail" class="auth-input" type="email" autocomplete="email" required />
+              </div>
+              <p class="auth-status" id="forgotStatus" role="status" aria-live="polite"></p>
+              <button class="button button-primary auth-submit-btn" type="submit">
+                Send Password Reset Email
+              </button>
+              <button class="button button-text" id="backToLoginBtn" type="button">
+                Back to Sign In
+              </button>
+              <button class="button button-text" id="haveResetTokenBtn" type="button">
+                Already have a reset code?
+              </button>
+            </form>
+          </div>
+
+          <!-- Reset Password Panel (when opened via email reset link or manual token) -->
+          <div id="panelReset" class="auth-panel" role="tabpanel" hidden>
+            <form id="resetPasswordForm" novalidate>
+              <div class="auth-field" id="resetTokenField" style="display: none;">
+                <label class="field-label" for="resetTokenInput">Reset Token (from email)</label>
+                <input id="resetTokenInput" class="auth-input" type="text" autocomplete="off" placeholder="Paste token from email" />
+              </div>
+              <div class="auth-field">
+                <label class="field-label" for="resetNewPassword">New Password (min 8 characters)</label>
+                <input id="resetNewPassword" class="auth-input" type="password" autocomplete="new-password" minlength="8" required />
+              </div>
+              <div class="auth-field">
+                <label class="field-label" for="resetConfirmPassword">Confirm New Password</label>
+                <input id="resetConfirmPassword" class="auth-input" type="password" autocomplete="new-password" minlength="8" required />
+              </div>
+              <p class="auth-status" id="resetStatus" role="status" aria-live="polite"></p>
+              <button class="button button-primary auth-submit-btn" type="submit" id="resetPasswordSubmitBtn">
+                Set New Password
+              </button>
+              <button class="button button-text" id="cancelResetBtn" type="button">
+                Back to Sign In
+              </button>
+            </form>
+          </div>
+        </div>
+
+        <!-- User Profile Panel (when logged in) -->
+        <div id="authUserView" class="auth-panel" hidden>
+          <div class="profile-info">
+            <div class="profile-avatar" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" width="28" height="28">
+                <circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="1.6" />
+                <path d="M5 20c0-3.8 3.1-6 7-6s7 2.2 7 6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+              </svg>
+            </div>
+            <div style="min-width: 0; flex: 1;">
+              <p class="profile-email-label">Signed in as</p>
+              <h4 id="profileDisplayName" class="profile-display-name">—</h4>
+              <p id="profileEmailSubtitle" class="profile-email-subtitle">—</p>
+            </div>
+          </div>
+
+          <!-- Nickname Management Card -->
+          <div class="profile-nickname-card" id="profileNicknameCard">
+            <div class="nickname-view-row" id="nicknameViewRow">
+              <div class="nickname-meta">
+                <span class="nickname-label">Personal Nickname</span>
+                <span class="nickname-val" id="profileNicknameValue">—</span>
+              </div>
+              <button class="button button-sm button-secondary" id="editNicknameBtn" type="button" aria-label="Edit personal nickname" data-testid="button-edit-nickname">
+                <svg viewBox="0 0 16 16" fill="none" width="13" height="13" aria-hidden="true">
+                  <path d="M11.5 2.5a1.414 1.414 0 0 1 2 2L4.5 13.5l-3 1 1-3 9-9Z" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+                <span>Edit</span>
+              </button>
+            </div>
+
+            <form class="nickname-edit-form" id="nicknameEditForm" style="display: none;" novalidate>
+              <label class="field-label" for="nicknameInput">Personal Nickname <span style="font-weight: normal; color: var(--ink-faint);">(2–30 chars)</span></label>
+              <div class="nickname-input-group">
+                <input
+                  id="nicknameInput"
+                  class="auth-input nickname-input"
+                  type="text"
+                  minlength="2"
+                  maxlength="30"
+                  placeholder="Enter 2–30 characters"
+                  required
+                  data-testid="input-nickname"
+                />
+                <div class="nickname-actions">
+                  <button class="button button-sm button-primary" id="saveNicknameBtn" type="submit" data-testid="button-save-nickname">
+                    Save
+                  </button>
+                  <button class="button button-sm button-outline" id="cancelNicknameBtn" type="button" data-testid="button-cancel-nickname">
+                    Cancel
+                  </button>
+                </div>
+              </div>
+              <p class="auth-status" id="nicknameStatus" role="status" aria-live="polite"></p>
+            </form>
+          </div>
+
+          <dl class="profile-details">
+            <div>
+              <dt>Account ID</dt>
+              <dd id="profileUserId">—</dd>
+            </div>
+            <div>
+              <dt>Email Address</dt>
+              <dd id="profileEmail">—</dd>
+            </div>
+            <div>
+              <dt>Nickname</dt>
+              <dd id="profileNicknameDisplay">Not set</dd>
+            </div>
+            <div>
+              <dt>Created</dt>
+              <dd id="profileCreated">—</dd>
+            </div>
+            <div>
+              <dt>Email Verification</dt>
+              <dd id="profileVerified">Unverified</dd>
+            </div>
+          </dl>
+
+          <p class="auth-status" id="profileStatus" role="status" aria-live="polite"></p>
+
+          <div class="profile-actions" style="display: flex; flex-direction: column; gap: 8px;">
+            <button class="button button-copy" id="resendVerificationBtn" type="button" style="display: none; width: 100%;">
+              Resend Verification Email
+            </button>
+            <button class="button button-dark" id="logoutButton" type="button" data-testid="button-logout">
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </div>
+    </dialog>
+
+    <!-- Dialog: Report Detail Modal (Inspect full saved report) -->
+    <dialog id="reportDetailDialog" class="auth-dialog report-detail-dialog" aria-labelledby="reportDetailModalTitle">
+      <div class="auth-modal-content report-detail-content">
+        <div class="auth-modal-header">
+          <div style="min-width: 0;">
+            <p class="panel-kicker" style="margin: 0 0 2px 0;">Saved Scan Report</p>
+            <h3 id="reportDetailModalTitle" style="margin: 0; font-size: 1.15rem; word-break: break-all;">Analysis Findings</h3>
+          </div>
+          <button id="reportDetailClose" class="modal-close-btn" type="button" aria-label="Close dialog">
+            <svg viewBox="0 0 20 20" fill="none" width="18" height="18" aria-hidden="true">
+              <path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+            </svg>
+          </button>
+        </div>
+
+        <div class="report-detail-body" id="reportDetailBody">
+          <!-- Populated dynamically -->
+        </div>
+
+        <div class="report-detail-footer">
+          <button class="button button-sm button-secondary" id="copyDetailReportBtn" type="button">
+            <span>Copy Full Report</span>
+          </button>
+          <button class="button button-sm button-outline danger-btn" id="deleteDetailReportBtn" type="button">
+            <span>Delete Report</span>
+          </button>
+          <span class="copy-feedback-msg" id="detailFeedback" aria-live="polite"></span>
+        </div>
+      </div>
+    </dialog>
+
+    <!-- Dialog: Clear All History Confirmation -->
+    <dialog id="confirmClearDialog" class="auth-dialog confirm-dialog" aria-labelledby="confirmClearTitle">
+      <div class="auth-modal-content confirm-modal-content">
+        <div class="auth-modal-header">
+          <h3 id="confirmClearTitle">Clear Scan History?</h3>
+          <button id="confirmClearClose" class="modal-close-btn" type="button" aria-label="Close dialog">
+            <svg viewBox="0 0 20 20" fill="none" width="18" height="18" aria-hidden="true">
+              <path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+            </svg>
+          </button>
+        </div>
+        <div class="confirm-modal-body">
+          <p>This will permanently delete all saved security scan reports associated with your account.</p>
+          <p style="font-size: 0.85rem; color: var(--ink-faint); margin-top: 8px;">
+            Your user account, sessions, and credentials will not be affected. This action cannot be undone.
+          </p>
+        </div>
+        <div class="confirm-modal-footer">
+          <button class="button button-sm button-outline" id="cancelClearBtn" type="button">
+            Cancel
+          </button>
+          <button class="button button-sm button-primary danger-action-btn" id="executeClearBtn" type="button">
+            Yes, Clear All Reports
+          </button>
+        </div>
+      </div>
+    </dialog>
+  </body>
+</html>
