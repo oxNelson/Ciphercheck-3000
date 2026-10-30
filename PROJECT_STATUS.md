@@ -65,6 +65,7 @@ CipherCheck is a privacy-first password security auditor, secure generator, link
 - **Root Cause:**
   1. In the AI Studio editor, preview iframes make frontend API requests with `Origin: https://aistudio.google.com` or `*.googleusercontent.com`.
   2. In `server-smtp.js`, `getBaseUrl(req)` previously evaluated `isOriginAllowed(origin, req)` which allowed `*.google.com` for CORS/iframe compatibility.
+  3. Resolved by strictly separating CORS allowed origins from application hosting origins via `isApplicationHost(hostname)`, rejecting `google.com` and `googleusercontent.com` from base URL resolution.
 
 ### 2.5 Issue 5: URL Risk Checker Classification Accuracy & False Positive Remediation
 - **Bugs Diagnosed:**
@@ -78,6 +79,19 @@ CipherCheck is a privacy-first password security auditor, secure generator, link
   3. *Contextual Encoding Obfuscation Analysis:* Restructured encoding checks to specifically flag: (a) null byte injection sequences (`%00`) anywhere, (b) percent-encoded slashes/dots in the path (`/%2f`, `/%2e%2e/`), (c) percent-encoded characters in the hostname, and (d) path traversal sequences in query strings (`..%2f`, `%2e%2e`). Cleaned queries with `%25` and encoded redirect parameters pass cleanly.
   4. *FQDN Trailing Dot Normalization & Expanded ccTLDs:* Added `hostname.toLowerCase().replace(/\.+$/, "")` to `extractDomainParts` and expanded two-level ccTLDs to cover international registries (.hk, .kr, .my, .tw, .ar, .co, .id, .tr, .vn, .il, etc.).
   5. *Dedicated Deceptive Subdomain Heuristic (`embedded-tld-subdomain`):* Detects when a subdomain hierarchy incorporates TLD labels (e.g. `apple.com.evil-site.net`), providing clear observable explanations of the visual deception.
+
+### 2.6 Issue 6: Email Verification Link Google 403 Forbidden Error on Cloud Run
+- **Observed Behavior:** Clicking the verification link in the verification email opens Google Cloud Run / Google Frontend proxy and returns `Error 403 (Forbidden)`.
+- **Root Cause:**
+  1. When registering or requesting email verification inside the AI Studio development environment, incoming browser requests carry `Origin`, `Referer`, `X-Forwarded-Host`, or `APP_URL` matching the private development container URL: `https://ais-dev-<subdomain>.run.app`.
+  2. The Google Cloud Run AI Studio infrastructure (`user_auth_verification.lua` and `aistudio.google.com/applet-auth-bridge`) explicitly enforces developer authorization on `ais-dev-*.run.app` endpoints. When external clients (e.g. Gmail mobile/web, desktop mail clients, or incognito browser profiles) visit `ais-dev-...`, they lack the developer's session cookie and are redirected to Google login, resulting in HTTP 403 Forbidden.
+  3. The public shared preview URL for the application is `https://ais-pre-<subdomain>.run.app`, where `applet-auth-bridge` automatically grants the public auth token (`one_token_to_rule_them_all`) with seamless 302 redirection back to `https://ais-pre-.../?verifyToken=...` without Google login restrictions.
+- **Fixes Applied:**
+  1. *Host & Origin Transformation (`transformAppHost` & `sanitizeAppUrl`):* In `server-smtp.js`, added automatic transformation of private `ais-dev-` host prefixes to public shared preview `ais-pre-` host prefixes for all outgoing email links.
+  2. *Priority for `PUBLIC_URL` / `SHARED_APP_URL`:* Allowed manual override if a custom domain is configured.
+  3. *GET Route Support (`app.get('/api/auth/verify-email')`):* Added a fallback GET handler on `/api/auth/verify-email` that validates the token, marks user verified in PostgreSQL, establishes an authenticated session, and redirects to `/?verified=1`.
+  4. *Frontend Token Input & Status Handling:* Added `manualVerificationContainer` with input and "Verify Token" button directly in the Account Profile modal (allowing users to copy-paste the token code from their email), and handled `?verified=1` and `?verifyError=` query parameters on application load.
+  5. *138 Automated Tests Passing:* Added dedicated test suite 5 in `tests/smtp.test.js` validating host translation, URL construction, query parameter encoding, and 403 prevention across development, preview, and custom production environments.
 
 ---
 

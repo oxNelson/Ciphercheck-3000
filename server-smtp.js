@@ -103,15 +103,45 @@ export function isOriginAllowed(origin, req = null) {
   }
 }
 
+export function transformAppHost(hostname) {
+  if (!hostname || typeof hostname !== "string") return hostname;
+  const parts = hostname.trim().split(":");
+  let host = parts[0];
+  const port = parts[1] ? `:${parts[1]}` : "";
+  // Map Google AI Studio private dev host to public shared preview host
+  // e.g. ais-dev-*.run.app -> ais-pre-*.run.app
+  if (/^ais-dev-/i.test(host)) {
+    host = host.replace(/^ais-dev-/i, "ais-pre-");
+  }
+  return `${host}${port}`;
+}
+
+export function sanitizeAppUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== "string") return rawUrl;
+  let trimmed = rawUrl.trim().replace(/\/+$/, "");
+  // Map private ais-dev origin to public ais-pre preview origin
+  if (/:\/\/ais-dev-/i.test(trimmed)) {
+    trimmed = trimmed.replace(/:\/\/ais-dev-/i, "://ais-pre-");
+  }
+  return trimmed;
+}
+
 export function getBaseUrl(req = null) {
-  // 1. If request comes from an allowed application host (e.g., public .run.app preview or custom domain), use it
+  // 1. Explicit public/shared production URL takes highest precedence if provided
+  const publicEnvUrl = process.env.PUBLIC_URL || process.env.SHARED_APP_URL;
+  if (publicEnvUrl && typeof publicEnvUrl === "string" && publicEnvUrl.trim().startsWith("http")) {
+    return sanitizeAppUrl(publicEnvUrl.trim());
+  }
+
+  // 2. If request comes from an allowed application host, use it (transforming private dev host to public preview)
   if (req) {
     const origin = req.headers?.origin;
     if (origin && typeof origin === "string") {
       try {
         const url = new URL(origin);
         if (isApplicationHost(url.hostname)) {
-          return `${url.protocol}//${url.host}`.replace(/\/+$/, "");
+          const safeHost = transformAppHost(url.host);
+          return `${url.protocol}//${safeHost}`.replace(/\/+$/, "");
         }
       } catch (_) {}
     }
@@ -121,26 +151,19 @@ export function getBaseUrl(req = null) {
       try {
         const url = new URL(referer);
         if (isApplicationHost(url.hostname)) {
-          return `${url.protocol}//${url.host}`.replace(/\/+$/, "");
+          const safeHost = transformAppHost(url.host);
+          return `${url.protocol}//${safeHost}`.replace(/\/+$/, "");
         }
       } catch (_) {}
     }
-  }
 
-  // 2. Explicit application URL from environment (canonical public origin for external links when origin is aistudio.google.com or omitted)
-  const envUrl = process.env.APP_URL || process.env.PUBLIC_URL || process.env.BASE_URL;
-  if (envUrl && typeof envUrl === "string" && envUrl.trim().startsWith("http")) {
-    return envUrl.trim().replace(/\/+$/, "");
-  }
-
-  // 3. Allowed application forwarded host / host headers
-  if (req) {
     const fwdHost = req.headers?.["x-forwarded-host"];
     if (fwdHost && typeof fwdHost === "string") {
       const hostPart = fwdHost.split(",")[0].trim();
       if (isApplicationHost(hostPart.split(":")[0])) {
+        const safeHost = transformAppHost(hostPart);
         const proto = req.headers?.["x-forwarded-proto"]?.split(",")[0].trim() || (req.secure ? "https" : "http");
-        return `${proto}://${hostPart}`.replace(/\/+$/, "");
+        return `${proto}://${safeHost}`.replace(/\/+$/, "");
       }
     }
 
@@ -148,10 +171,17 @@ export function getBaseUrl(req = null) {
     if (host && typeof host === "string") {
       const hostPart = host.split(":")[0];
       if (isApplicationHost(hostPart)) {
+        const safeHost = transformAppHost(host);
         const proto = req.headers?.["x-forwarded-proto"]?.split(",")[0].trim() || (req.secure ? "https" : "http");
-        return `${proto}://${host}`.replace(/\/+$/, "");
+        return `${proto}://${safeHost}`.replace(/\/+$/, "");
       }
     }
+  }
+
+  // 3. Fallback to APP_URL or BASE_URL from environment (sanitized for public preview)
+  const envUrl = process.env.APP_URL || process.env.BASE_URL;
+  if (envUrl && typeof envUrl === "string" && envUrl.trim().startsWith("http")) {
+    return sanitizeAppUrl(envUrl.trim());
   }
 
   // 4. Fallback for local testing / CLI
@@ -211,7 +241,7 @@ export async function sendVerificationEmail(toEmail, token, baseUrl = null) {
     throw new Error("SMTP service is not configured.");
   }
 
-  const effectiveBaseUrl = (baseUrl || getBaseUrl()).replace(/\/+$/, "");
+  const effectiveBaseUrl = sanitizeAppUrl(baseUrl || getBaseUrl()).replace(/\/+$/, "");
   const verifyUrl = `${effectiveBaseUrl}/?verifyToken=${encodeURIComponent(token)}`;
   const senderEmail = process.env.SMTP_FROM || process.env.SMTP_USER;
 
@@ -257,7 +287,7 @@ export async function sendPasswordResetEmail(toEmail, token, baseUrl = null) {
     throw new Error("SMTP service is not configured.");
   }
 
-  const effectiveBaseUrl = (baseUrl || getBaseUrl()).replace(/\/+$/, "");
+  const effectiveBaseUrl = sanitizeAppUrl(baseUrl || getBaseUrl()).replace(/\/+$/, "");
   const resetUrl = `${effectiveBaseUrl}/?resetToken=${encodeURIComponent(token)}`;
   const senderEmail = process.env.SMTP_FROM || process.env.SMTP_USER;
 

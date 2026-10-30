@@ -143,31 +143,41 @@ describe("Database Architecture & PostgreSQL Persistence Layer", () => {
   });
 
   test("In-memory store faithfully enforces user isolation and data contracts", async () => {
-    const userA = await createUser("isolated-a@test.org", "hashA", "UserA");
-    const userB = await createUser("isolated-b@test.org", "hashB", "UserB");
+    const originalUrl = process.env.DATABASE_URL;
+    const originalEnv = process.env.NODE_ENV;
+    delete process.env.DATABASE_URL;
+    process.env.NODE_ENV = "development";
+    try {
+      await initDatabase();
+      const userA = await createUser("isolated-a@test.org", "hashA", "UserA");
+      const userB = await createUser("isolated-b@test.org", "hashB", "UserB");
 
-    // Reports isolation
-    const reportAnalysis = {
-      isValid: true,
-      urlParts: { hostname: "bank.example.com", registeredDomain: "example.com" },
-      verdict: { level: "low", title: "Clean", summary: "Safe" },
-      rawInput: "https://bank.example.com",
-    };
-    await saveReport(userA.id, reportAnalysis);
+      // Reports isolation
+      const reportAnalysis = {
+        isValid: true,
+        urlParts: { hostname: "bank.example.com", registeredDomain: "example.com" },
+        verdict: { level: "low", title: "Clean", summary: "Safe" },
+        rawInput: "https://bank.example.com",
+      };
+      await saveReport(userA.id, reportAnalysis);
 
-    const reportsA = await getSavedReports(userA.id);
-    const reportsB = await getSavedReports(userB.id);
+      const reportsA = await getSavedReports(userA.id);
+      const reportsB = await getSavedReports(userB.id);
 
-    assert.equal(reportsA.total, 1);
-    assert.equal(reportsB.total, 0);
+      assert.equal(reportsA.total, 1);
+      assert.equal(reportsB.total, 0);
 
-    // Recommendations isolation
-    await saveUserRecommendationStatus(userA.id, { addressed: ["rec-1"], dismissed: ["rec-2"] });
-    const recsA = await getUserRecommendationStatus(userA.id);
-    const recsB = await getUserRecommendationStatus(userB.id);
+      // Recommendations isolation
+      await saveUserRecommendationStatus(userA.id, { addressed: ["rec-1"], dismissed: ["rec-2"] });
+      const recsA = await getUserRecommendationStatus(userA.id);
+      const recsB = await getUserRecommendationStatus(userB.id);
 
-    assert.deepEqual(recsA.addressed, ["rec-1"]);
-    assert.deepEqual(recsB.addressed, []);
+      assert.deepEqual(recsA.addressed, ["rec-1"]);
+      assert.deepEqual(recsB.addressed, []);
+    } finally {
+      if (originalUrl) process.env.DATABASE_URL = originalUrl;
+      if (originalEnv) process.env.NODE_ENV = originalEnv;
+    }
   });
 
   test("closeDatabase cleanly resets pool state without throwing", async () => {

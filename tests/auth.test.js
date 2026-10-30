@@ -18,7 +18,7 @@ import {
   setPasswordResetToken,
   resetPasswordWithToken,
 } from "../server-auth.js";
-import { isSmtpConfigured, getBaseUrl } from "../server-smtp.js";
+import { isSmtpConfigured, getBaseUrl, sanitizeAppUrl } from "../server-smtp.js";
 
 describe("Phase 2: Authentication & Security Foundation", () => {
   test("Password hashing creates secure hash and verifies correctly", async () => {
@@ -248,11 +248,11 @@ describe("Phase 2: Authentication & Security Foundation", () => {
   test("getBaseUrl strips trailing slashes to avoid double-slash URLs", () => {
     const fakeReq = {
       headers: {
-        origin: "https://ais-dev-ok6xmxuezsad5ybcofshmt-220908265023.europe-west2.run.app///",
+        origin: "https://ais-pre-ok6xmxuezsad5ybcofshmt-220908265023.europe-west2.run.app///",
       },
     };
     const resolved = getBaseUrl(fakeReq);
-    assert.equal(resolved, "https://ais-dev-ok6xmxuezsad5ybcofshmt-220908265023.europe-west2.run.app");
+    assert.equal(resolved, "https://ais-pre-ok6xmxuezsad5ybcofshmt-220908265023.europe-west2.run.app");
   });
 
   test("getBaseUrl strictly rejects aistudio.google.com origin and resolves to APP_URL", () => {
@@ -266,8 +266,9 @@ describe("Phase 2: Authentication & Security Foundation", () => {
     const resolved = getBaseUrl(fakeReq);
     // Must NOT be aistudio.google.com
     assert.notEqual(resolved, "https://aistudio.google.com");
-    // Must be the valid application deployment URL
-    assert.equal(resolved, process.env.APP_URL || "https://ais-dev-ok6xmxuezsad5ybcofshmt-220908265023.europe-west2.run.app");
+    // Must be the valid application deployment URL (sanitized from private dev to public preview)
+    const expectedAppUrl = sanitizeAppUrl(process.env.APP_URL || "https://ais-pre-ok6xmxuezsad5ybcofshmt-220908265023.europe-west2.run.app");
+    assert.equal(resolved, expectedAppUrl);
   });
 
   test("getBaseUrl strictly rejects googleusercontent.com iframe origin", () => {
@@ -279,7 +280,8 @@ describe("Phase 2: Authentication & Security Foundation", () => {
     };
     const resolved = getBaseUrl(fakeReq);
     assert.ok(!resolved.includes("googleusercontent.com"));
-    assert.equal(resolved, process.env.APP_URL || "https://ais-dev-ok6xmxuezsad5ybcofshmt-220908265023.europe-west2.run.app");
+    const expectedAppUrl = sanitizeAppUrl(process.env.APP_URL || "https://ais-pre-ok6xmxuezsad5ybcofshmt-220908265023.europe-west2.run.app");
+    assert.equal(resolved, expectedAppUrl);
   });
 
   test("User registration with optional nickname persists nickname accurately", async () => {

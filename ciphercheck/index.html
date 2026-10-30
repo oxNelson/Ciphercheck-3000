@@ -573,11 +573,52 @@
                 <div class="url-verdict-header">
                   <div class="url-verdict-badge-wrap">
                     <span class="url-verdict-indicator" id="urlVerdictIndicator" aria-hidden="true"></span>
-                    <h3 id="urlVerdictTitle">No Obvious Red Flags Detected</h3>
+                    <div>
+                      <span class="url-verdict-category-tag" id="urlVerdictCategoryTag">Category</span>
+                      <h3 id="urlVerdictTitle">No Obvious Indicators Detected</h3>
+                    </div>
                   </div>
                   <span class="url-finding-count" id="urlFindingCount">0 indicators detected</span>
                 </div>
                 <p class="url-verdict-summary" id="urlVerdictSummary">No suspicious structural patterns detected in the checks performed.</p>
+                <div class="url-verdict-meta-bar" id="urlVerdictMetaBar">
+                  <div class="verdict-meta-item">
+                    <span class="meta-label">Confidence:</span>
+                    <span class="meta-value" id="urlVerdictConfidence">Standard (Heuristics & Clean Feeds)</span>
+                  </div>
+                  <div class="verdict-meta-item">
+                    <span class="meta-label">Limitations:</span>
+                    <span class="meta-value" id="urlVerdictLimitations">Absence of detected indicators does not guarantee safety.</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Threat Intelligence Providers Status Strip -->
+              <div class="url-providers-section" id="urlProvidersSection">
+                <div class="providers-heading">
+                  <h4 class="section-subheading">External Threat Intelligence Feeds</h4>
+                  <span class="providers-sync-status" id="urlProvidersSyncStatus">Checking live feeds...</span>
+                </div>
+                <div class="url-providers-grid" id="urlProvidersGrid" aria-label="Threat intelligence provider statuses">
+                  <!-- Dynamically populated: URLhaus, Cloudflare DNS, Safe Browsing, VirusTotal -->
+                </div>
+              </div>
+
+              <!-- Confirmed Threat Intelligence Matches (Shown when feeds detect malware/phishing) -->
+              <div class="url-intel-matches-section" id="urlIntelMatchesSection" style="display: none;">
+                <div class="intel-matches-heading">
+                  <span class="threat-alert-icon" aria-hidden="true">
+                    <svg viewBox="0 0 20 20" fill="none" width="18" height="18">
+                      <path d="M10 2.5 18 16.5H2L10 2.5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+                      <path d="M10 7.5v4.5m0 2.5v.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+                    </svg>
+                  </span>
+                  <h4>Confirmed Threat Intelligence Matches</h4>
+                  <span class="intel-matches-count" id="urlIntelMatchesCounter">0 confirmed threats</span>
+                </div>
+                <ul class="url-intel-matches-list" id="urlIntelMatchesList">
+                  <!-- Dynamically populated with provider evidence -->
+                </ul>
               </div>
 
               <div class="url-facts-section">
@@ -589,13 +630,26 @@
 
               <div class="url-findings-section" id="urlFindingsSection">
                 <div class="findings-heading">
-                  <h4>Detected Structural Indicators</h4>
+                  <h4>Detected Structural Heuristic Indicators</h4>
                   <span id="urlFindingsCounter">0 findings</span>
                 </div>
                 <ul class="url-findings-list" id="urlFindingsList">
                   <!-- Dynamically populated -->
                 </ul>
               </div>
+
+              <!-- Raw Intelligence Evidence Inspector (Collapsible) -->
+              <details class="url-raw-evidence-details" id="urlRawEvidenceDetails">
+                <summary class="raw-evidence-summary">
+                  <svg viewBox="0 0 20 20" fill="none" width="16" height="16" aria-hidden="true">
+                    <path d="m6 8 4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                  <span>View Raw Threat Intelligence &amp; Evidence Payload</span>
+                </summary>
+                <div class="raw-evidence-content">
+                  <pre class="raw-evidence-code" id="urlRawEvidenceJson">No external threat intelligence queried yet.</pre>
+                </div>
+              </details>
 
               <div class="url-actions-row">
                 <button class="button button-sm button-secondary" id="copyUrlReportBtn" type="button" data-testid="button-copy-url-report">
@@ -984,6 +1038,15 @@
           <p class="auth-status" id="profileStatus" role="status" aria-live="polite"></p>
 
           <div class="profile-actions" style="display: flex; flex-direction: column; gap: 8px;">
+            <div id="manualVerificationContainer" style="display: none; flex-direction: column; gap: 6px; margin-bottom: 4px; padding: 10px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px;">
+              <label for="manualVerifyTokenInput" style="font-size: 11px; color: var(--color-text-muted, #76817b); font-weight: 500;">Enter verification token from email:</label>
+              <div style="display: flex; gap: 6px;">
+                <input id="manualVerifyTokenInput" type="text" placeholder="Paste 64-character token" class="field-input" style="flex: 1; font-size: 12px; font-family: monospace; padding: 6px 10px; border-radius: 6px; background: rgba(0, 0, 0, 0.2); border: 1px solid rgba(255, 255, 255, 0.1); color: inherit;" />
+                <button class="button button-sm button-primary" id="manualVerifyTokenBtn" type="button" style="white-space: nowrap;">
+                  Verify Token
+                </button>
+              </div>
+            </div>
             <button class="button button-copy" id="resendVerificationBtn" type="button" style="display: none; width: 100%;">
               Resend Verification Email
             </button>

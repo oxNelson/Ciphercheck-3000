@@ -46,6 +46,11 @@ import {
   getBaseUrl,
   isOriginAllowed,
 } from "./server-smtp.js";
+import {
+  inspectUrlTarget,
+  checkThreatIntelRateLimit,
+  classifyAssessment,
+} from "./server-threat-intel.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -123,8 +128,8 @@ async function startServer() {
     const checkIsSecure = (req) =>
       Boolean(req.secure || req.headers["x-forwarded-proto"] === "https" || process.env.NODE_ENV === "production");
 
-    // CSRF defense on state-changing authentication, reports, and recommendations routes
-    app.use(["/api/auth", "/api/reports", "/api/recommendations"], (req, res, next) => {
+    // CSRF defense on state-changing authentication, reports, recommendations, and url inspection routes
+    app.use(["/api/auth", "/api/reports", "/api/recommendations", "/api/url"], (req, res, next) => {
       if (["GET", "HEAD", "OPTIONS"].includes(req.method)) {
         return next();
       }
@@ -380,6 +385,24 @@ async function startServer() {
       });
     });
 
+    // Auth: Email Verification via direct GET link fallback (e.g. email clients opening link directly)
+    app.get("/api/auth/verify-email", async (req, res) => {
+      const token = req.query?.token || req.query?.verifyToken;
+      if (!token || typeof token !== "string" || !token.trim()) {
+        return res.redirect("/?verifyError=" + encodeURIComponent("Verification link is invalid or has expired."));
+      }
+
+      const verifiedUser = await verifyEmailToken(token.trim());
+      if (!verifiedUser) {
+        return res.redirect("/?verifyError=" + encodeURIComponent("Verification link is invalid or has expired."));
+      }
+
+      const isSecure = checkIsSecure(req);
+      const newSession = await createSession(verifiedUser.id);
+      res.setHeader("Set-Cookie", serializeSessionCookie(newSession.sessionId, newSession.expiresAt, isSecure));
+      return res.redirect("/?verified=1");
+    });
+
     // Auth: Resend Verification Email
     app.post("/api/auth/resend-verification", async (req, res) => {
       const clientIp = req.ip || req.socket.remoteAddress || "127.0.0.1";
@@ -499,6 +522,69 @@ async function startServer() {
       } catch (err) {
         console.error("[Auth] Reset password error:", err.message);
         return res.status(500).json({ error: "Failed to reset password." });
+      }
+    });
+
+    // =========================================================================
+    // Threat Intelligence & URL Reputation Inspection Endpoint
+    // =========================================================================
+
+    app.post("/api/url/inspect", async (req, res) => {
+      const clientIp = req.ip || req.socket.remoteAddress || "127.0.0.1";
+      const sessionId = getSessionId(req);
+      const rateLimitKey = sessionId ? `user:${sessionId}` : `ip:${clientIp}`;
+
+      const rateCheck = checkThreatIntelRateLimit(rateLimitKey);
+      if (!rateCheck.allowed) {
+        return res.status(429).json({
+          error: `Threat intelligence rate limit exceeded. Please wait ${rateCheck.resetInSeconds} seconds before requesting further lookups.`,
+          resetInSeconds: rateCheck.resetInSeconds,
+        });
+      }
+
+      const { url, heuristicVerdict, heuristicFindings } = req.body || {};
+      if (!url || typeof url !== "string" || !url.trim()) {
+        return res.status(400).json({ error: "A valid URL string is required for threat intelligence inspection." });
+      }
+
+      try {
+        const intelResult = await inspectUrlTarget(url.trim());
+        const classified = classifyAssessment(
+          heuristicVerdict?.level,
+          Array.isArray(heuristicFindings) ? heuristicFindings : [],
+          intelResult
+        );
+
+        return res.json({
+          success: true,
+          target: intelResult.target,
+          inspectionTime: intelResult.inspectionTime,
+          fromCache: intelResult.fromCache,
+          providers: intelResult.providers,
+          summary: intelResult.summary,
+          verdict: classified,
+        });
+      } catch (err) {
+        const isSsrfBlock = err.message && (
+          err.message.includes("prohibited") ||
+          err.message.includes("Private") ||
+          err.message.includes("Loopback") ||
+          err.message.includes("Link-local") ||
+          err.message.includes("Internal host")
+        );
+
+        if (isSsrfBlock) {
+          return res.status(400).json({
+            error: "SSRF Protection: Threat lookup blocked for internal, private, or prohibited host address.",
+            reason: err.message,
+            blocked: true,
+          });
+        }
+
+        console.error("[ThreatIntel] URL inspection error:", err.message);
+        return res.status(400).json({
+          error: err.message || "Failed to inspect URL target.",
+        });
       }
     });
 

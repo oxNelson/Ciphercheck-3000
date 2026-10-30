@@ -1270,6 +1270,18 @@ function formatUrlReport(analysis) {
     lines.push(`* ${d}`);
   }
 
+  if (analysis.threatIntelligence && analysis.threatIntelligence.providers) {
+    lines.push("");
+    lines.push("EXTERNAL THREAT INTELLIGENCE & REPUTATION FEEDS:");
+    const provs = Object.values(analysis.threatIntelligence.providers);
+    for (const p of provs) {
+      lines.push(`- [${String(p.status || "unconfigured").toUpperCase()}] ${p.providerName || p.provider}`);
+      if (p.details) lines.push(`  Details:   ${p.details}`);
+      if (p.reference) lines.push(`  Reference: ${p.reference}`);
+      if (p.observationTime) lines.push(`  Observed:  ${p.observationTime}`);
+    }
+  }
+
   lines.push("================================================================================");
   return lines.join("\n");
 }
@@ -1302,6 +1314,17 @@ function initUrlChecker() {
   const saveUrlReportLabel = document.getElementById("saveUrlReportLabel");
   const sampleBtns = document.querySelectorAll(".sample-url-btn");
 
+  const urlVerdictCategoryTag = document.getElementById("urlVerdictCategoryTag");
+  const urlVerdictConfidence = document.getElementById("urlVerdictConfidence");
+  const urlVerdictLimitations = document.getElementById("urlVerdictLimitations");
+  const urlProvidersSection = document.getElementById("urlProvidersSection");
+  const urlProvidersSyncStatus = document.getElementById("urlProvidersSyncStatus");
+  const urlProvidersGrid = document.getElementById("urlProvidersGrid");
+  const urlIntelMatchesSection = document.getElementById("urlIntelMatchesSection");
+  const urlIntelMatchesCounter = document.getElementById("urlIntelMatchesCounter");
+  const urlIntelMatchesList = document.getElementById("urlIntelMatchesList");
+  const urlRawEvidenceJson = document.getElementById("urlRawEvidenceJson");
+
   if (!urlInput || !analyzeBtn || !urlResults) return;
 
   let currentAnalysis = null;
@@ -1333,15 +1356,24 @@ function initUrlChecker() {
 
     currentAnalysis = res;
 
-    // Verdict Card
+    // Verdict Card initial local heuristic state
     if (urlVerdictCard) {
       urlVerdictCard.setAttribute("data-verdict", res.verdict.level);
+    }
+    if (urlVerdictCategoryTag) {
+      urlVerdictCategoryTag.textContent = "Local Heuristic Evaluation";
     }
     if (urlVerdictTitle) {
       urlVerdictTitle.textContent = res.verdict.title;
     }
     if (urlVerdictSummary) {
       urlVerdictSummary.textContent = res.verdict.summary;
+    }
+    if (urlVerdictConfidence) {
+      urlVerdictConfidence.textContent = "Instant Local Heuristic (Zero Remote Requests)";
+    }
+    if (urlVerdictLimitations) {
+      urlVerdictLimitations.textContent = "Analyzing structural format locally; querying external threat feeds...";
     }
     if (urlFindingCount) {
       urlFindingCount.textContent = `${res.findings.length} indicator${res.findings.length === 1 ? "" : "s"} detected`;
@@ -1394,11 +1426,215 @@ function initUrlChecker() {
       }
     }
 
+    // Initialize Provider status cards while query is in-flight
+    if (urlProvidersSyncStatus) {
+      urlProvidersSyncStatus.textContent = "Connecting to threat intelligence feeds...";
+    }
+    if (urlIntelMatchesSection) {
+      urlIntelMatchesSection.style.display = "none";
+    }
+    if (urlRawEvidenceJson) {
+      urlRawEvidenceJson.textContent = "Querying live threat intelligence...";
+    }
+
+    if (urlProvidersGrid) {
+      urlProvidersGrid.innerHTML = `
+        <div class="url-provider-card">
+          <div class="provider-header">
+            <span class="provider-name">URLhaus (Abuse.ch)</span>
+            <span class="provider-badge" data-status="unconfigured">QUERYING...</span>
+          </div>
+          <p class="provider-details">Checking active malware distribution database...</p>
+        </div>
+        <div class="url-provider-card">
+          <div class="provider-header">
+            <span class="provider-name">Cloudflare Security DNS</span>
+            <span class="provider-badge" data-status="unconfigured">QUERYING...</span>
+          </div>
+          <p class="provider-details">Evaluating domain threat resolution policy...</p>
+        </div>
+        <div class="url-provider-card">
+          <div class="provider-header">
+            <span class="provider-name">Google Safe Browsing</span>
+            <span class="provider-badge" data-status="unconfigured">STANDBY</span>
+          </div>
+          <p class="provider-details">Awaiting server verification...</p>
+        </div>
+        <div class="url-provider-card">
+          <div class="provider-header">
+            <span class="provider-name">VirusTotal v3</span>
+            <span class="provider-badge" data-status="unconfigured">STANDBY</span>
+          </div>
+          <p class="provider-details">Awaiting server verification...</p>
+        </div>
+      `;
+    }
+
     urlResults.hidden = false;
 
+    // Dispatch initial local heuristic result to Security Center
     if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
       window.dispatchEvent(new CustomEvent("ciphercheck:urlanalysis", { detail: { analysis: res } }));
     }
+
+    // Asynchronous backend threat intelligence query
+    fetch("/api/url/inspect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url: val,
+        heuristicVerdict: res.verdict,
+        heuristicFindings: res.findings,
+      }),
+    })
+      .then((resp) => {
+        if (!resp.ok) {
+          return resp.json().then((errData) => {
+            throw new Error(errData.error || `HTTP ${resp.status}`);
+          });
+        }
+        return resp.json();
+      })
+      .then((data) => {
+        if (!data || !data.success) return;
+
+        currentAnalysis.threatIntelligence = {
+          queried: true,
+          status: data.verdict?.categoryKey || "unverified",
+          providers: data.providers,
+          summary: data.summary,
+          target: data.target,
+          inspectionTime: data.inspectionTime,
+          fromCache: data.fromCache,
+          rawVerdict: data.verdict,
+        };
+
+        if (urlProvidersSyncStatus) {
+          urlProvidersSyncStatus.textContent = data.fromCache
+            ? "Results loaded from verified cache"
+            : `Live inspection complete (${data.summary?.queriedProviders || 0} feeds active)`;
+        }
+
+        // Render Providers Grid
+        if (urlProvidersGrid && data.providers) {
+          urlProvidersGrid.innerHTML = "";
+          for (const [key, p] of Object.entries(data.providers)) {
+            const card = document.createElement("div");
+            card.className = "url-provider-card";
+            const badgeLabel = p.status === "malicious"
+              ? "MALICIOUS"
+              : p.status === "no_match"
+              ? "NO MATCH"
+              : p.status === "unconfigured"
+              ? "NOT CONFIGURED"
+              : p.status === "timeout"
+              ? "TIMEOUT"
+              : p.status.toUpperCase();
+
+            card.innerHTML = `
+              <div class="provider-header">
+                <span class="provider-name">${escapeHtml(p.providerName || key)}</span>
+                <span class="provider-badge" data-status="${escapeHtml(p.status)}">${escapeHtml(badgeLabel)}</span>
+              </div>
+              <p class="provider-details">${escapeHtml(p.details || (p.error ? p.error : "No feed response."))}</p>
+            `;
+            urlProvidersGrid.appendChild(card);
+          }
+        }
+
+        // Render Confirmed Threat Matches if malicious
+        if (data.summary?.hasConfirmedThreat) {
+          if (urlIntelMatchesSection) urlIntelMatchesSection.style.display = "block";
+          if (urlIntelMatchesCounter) {
+            urlIntelMatchesCounter.textContent = `${data.summary.maliciousMatches} confirmed threat${data.summary.maliciousMatches === 1 ? "" : "s"}`;
+          }
+          if (urlIntelMatchesList && data.providers) {
+            urlIntelMatchesList.innerHTML = "";
+            for (const p of Object.values(data.providers)) {
+              if (p.status === "malicious") {
+                const li = document.createElement("li");
+                li.className = "url-intel-item";
+                li.innerHTML = `
+                  <div class="intel-title-row">
+                    <span class="intel-provider-label">${escapeHtml(p.providerName)}</span>
+                    <span class="intel-time">${escapeHtml(p.observationTime ? new Date(p.observationTime).toLocaleTimeString() : "")}</span>
+                  </div>
+                  <p class="intel-details-text">${escapeHtml(p.details || "Active threat listing confirmed.")}</p>
+                  ${p.reference ? `<a href="${escapeHtml(p.reference)}" target="_blank" rel="noopener noreferrer" class="intel-ref-link">Evidence reference: ${escapeHtml(p.reference)}</a>` : ""}
+                `;
+                urlIntelMatchesList.appendChild(li);
+              }
+            }
+          }
+        } else {
+          if (urlIntelMatchesSection) urlIntelMatchesSection.style.display = "none";
+        }
+
+        // Update Verdict Card with 4-category classification
+        if (data.verdict) {
+          if (urlVerdictCard) {
+            urlVerdictCard.setAttribute("data-verdict", data.verdict.badgeLevel || res.verdict.level);
+          }
+          if (urlVerdictCategoryTag) {
+            urlVerdictCategoryTag.textContent = data.verdict.category || "Assessment";
+          }
+          if (urlVerdictTitle) {
+            urlVerdictTitle.textContent = data.verdict.title || res.verdict.title;
+          }
+          if (urlVerdictSummary) {
+            urlVerdictSummary.textContent = data.verdict.summary || res.verdict.summary;
+          }
+          if (urlVerdictConfidence) {
+            urlVerdictConfidence.textContent = data.verdict.confidence || "Standard";
+          }
+          if (urlVerdictLimitations) {
+            urlVerdictLimitations.textContent = data.verdict.limitations || "Absence of indicators does not guarantee safety.";
+          }
+          // Sync verdict with currentAnalysis
+          currentAnalysis.verdict = {
+            ...currentAnalysis.verdict,
+            level: data.verdict.badgeLevel || currentAnalysis.verdict.level,
+            title: data.verdict.title,
+            summary: data.verdict.summary,
+            category: data.verdict.category,
+            categoryKey: data.verdict.categoryKey,
+            confidence: data.verdict.confidence,
+            limitations: data.verdict.limitations,
+          };
+        }
+
+        // Update Raw Evidence JSON Inspector
+        if (urlRawEvidenceJson) {
+          urlRawEvidenceJson.textContent = JSON.stringify(data, null, 2);
+        }
+
+        // Re-dispatch event to update posture recommendations with live threat intel
+        if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
+          window.dispatchEvent(new CustomEvent("ciphercheck:urlanalysis", { detail: { analysis: currentAnalysis } }));
+        }
+      })
+      .catch((err) => {
+        console.warn("[CipherCheck] Threat intelligence lookup notice:", err.message);
+        if (urlProvidersSyncStatus) {
+          urlProvidersSyncStatus.textContent = "Threat feeds unreachable (local heuristics active)";
+        }
+        if (urlVerdictCategoryTag) {
+          urlVerdictCategoryTag.textContent = "Local Heuristics (External Feeds Unavailable)";
+        }
+        if (urlVerdictConfidence) {
+          urlVerdictConfidence.textContent = "Local Structural Heuristic Analysis Only";
+        }
+        if (urlVerdictLimitations) {
+          urlVerdictLimitations.textContent = "External threat feeds were unreachable. Verdict relies entirely on local static checks.";
+        }
+        if (urlRawEvidenceJson) {
+          urlRawEvidenceJson.textContent = JSON.stringify({
+            status: "unavailable",
+            error: err.message,
+            notice: "Threat lookup failed; local static heuristics preserved.",
+          }, null, 2);
+        }
+      });
   }
 
   analyzeBtn.addEventListener("click", runAnalysis);
@@ -1643,6 +1879,9 @@ function initAuth() {
   const haveResetTokenBtn = document.getElementById("haveResetTokenBtn");
   const cancelResetBtn = document.getElementById("cancelResetBtn");
   const resendVerificationBtn = document.getElementById("resendVerificationBtn");
+  const manualVerificationContainer = document.getElementById("manualVerificationContainer");
+  const manualVerifyTokenInput = document.getElementById("manualVerifyTokenInput");
+  const manualVerifyTokenBtn = document.getElementById("manualVerifyTokenBtn");
   const resetTokenField = document.getElementById("resetTokenField");
   const resetTokenInput = document.getElementById("resetTokenInput");
   const smtpNotice = document.getElementById("smtpNotice");
@@ -1724,6 +1963,7 @@ function initAuth() {
           profileVerified.textContent = "Verified ✓";
           profileVerified.style.color = "var(--green)";
           if (resendVerificationBtn) resendVerificationBtn.style.display = "none";
+          if (manualVerificationContainer) manualVerificationContainer.style.display = "none";
         } else {
           profileVerified.textContent = isSmtpAvailable
             ? "Pending verification"
@@ -1731,6 +1971,9 @@ function initAuth() {
           profileVerified.style.color = "var(--amber)";
           if (resendVerificationBtn) {
             resendVerificationBtn.style.display = isSmtpAvailable ? "block" : "none";
+          }
+          if (manualVerificationContainer) {
+            manualVerificationContainer.style.display = "flex";
           }
         }
       }
@@ -2124,6 +2367,53 @@ function initAuth() {
     });
   }
 
+  if (manualVerifyTokenBtn && manualVerifyTokenInput) {
+    manualVerifyTokenBtn.addEventListener("click", async () => {
+      const token = manualVerifyTokenInput.value.trim();
+      if (!token) {
+        if (profileStatus) {
+          profileStatus.textContent = "Please enter your verification token.";
+          profileStatus.dataset.state = "error";
+        }
+        return;
+      }
+      if (profileStatus) {
+        profileStatus.textContent = "Verifying token...";
+        profileStatus.removeAttribute("data-state");
+      }
+      try {
+        const res = await fetch("/api/auth/verify-email", {
+          method: "POST",
+          headers: getAuthHeaders(),
+          credentials: "include",
+          body: JSON.stringify({ token }),
+        });
+        const data = await res.json();
+        if (res.ok && data.user) {
+          if (data.token) {
+            sessionStorage.setItem("ciphercheck_token", data.token);
+          }
+          updateAuthUI(data.user);
+          if (profileStatus) {
+            profileStatus.textContent = "✓ Email address verified successfully!";
+            profileStatus.removeAttribute("data-state");
+          }
+          manualVerifyTokenInput.value = "";
+        } else {
+          if (profileStatus) {
+            profileStatus.textContent = data.error || "Verification token is invalid or expired.";
+            profileStatus.dataset.state = "error";
+          }
+        }
+      } catch (_) {
+        if (profileStatus) {
+          profileStatus.textContent = "Connection error. Please try again.";
+          profileStatus.dataset.state = "error";
+        }
+      }
+    });
+  }
+
   if (logoutBtn) {
     logoutBtn.addEventListener("click", async () => {
       try {
@@ -2218,10 +2508,36 @@ function initAuth() {
     });
   }
 
-  // Handle email verification links
+  // Handle email verification links & redirect parameters
   const urlParams = new URLSearchParams(window.location.search);
   const verifyToken = urlParams.get("verifyToken") || urlParams.get("token");
-  if (verifyToken) {
+  const verifiedParam = urlParams.get("verified");
+  const verifyErrorParam = urlParams.get("verifyError");
+
+  if (verifiedParam === "1") {
+    window.history.replaceState({}, document.title, window.location.pathname);
+    fetch("/api/auth/me", { headers: getAuthHeaders(), credentials: "include" })
+      .then((r) => r.json())
+      .then((data) => {
+        if (dialog && typeof dialog.showModal === "function") dialog.showModal();
+        if (data.user) {
+          updateAuthUI(data.user);
+          if (profileStatus) {
+            profileStatus.textContent = "✓ Email address verified successfully!";
+            profileStatus.removeAttribute("data-state");
+          }
+        }
+      })
+      .catch(() => {});
+  } else if (verifyErrorParam) {
+    window.history.replaceState({}, document.title, window.location.pathname);
+    if (dialog && typeof dialog.showModal === "function") dialog.showModal();
+    switchTab("login");
+    if (loginStatus) {
+      loginStatus.textContent = decodeURIComponent(verifyErrorParam);
+      loginStatus.dataset.state = "error";
+    }
+  } else if (verifyToken) {
     window.history.replaceState({}, document.title, window.location.pathname);
     fetch("/api/auth/verify-email", {
       method: "POST",
@@ -3019,6 +3335,18 @@ function generateSecurityRecommendations(options) {
     const verdictLevel = String(urlAnalysis.verdict?.level || "").toLowerCase();
     const findings = Array.isArray(urlAnalysis.findings) ? urlAnalysis.findings : [];
     const host = urlAnalysis.urlParts?.hostname || "destination";
+
+    if (urlAnalysis.threatIntelligence?.summary?.hasConfirmedThreat) {
+      recommendations.push({
+        id: "rec-url-confirmed-threat",
+        title: "Block Confirmed Malicious Threat Feed Match",
+        severity: "high",
+        category: "url",
+        explanation: `External threat intelligence feeds flagged ${host} with active malware or phishing records. Do not open, load, or submit credentials to this address.`,
+        actionLabel: "Review Threat Evidence",
+        targetId: "urlPanel",
+      });
+    }
 
     if (verdictLevel === "high") {
       const findingTitles = findings.map((f) => f.title).filter(Boolean).slice(0, 2).join("; ");

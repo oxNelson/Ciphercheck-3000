@@ -176,6 +176,9 @@ export async function initDatabase() {
       }
       // Ensure nickname column exists
       await client.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS nickname VARCHAR(30);");
+      // Ensure threat intel columns exist on saved_reports
+      await client.query("ALTER TABLE saved_reports ADD COLUMN IF NOT EXISTS threat_intel_status VARCHAR(50) DEFAULT 'unverified';");
+      await client.query("ALTER TABLE saved_reports ADD COLUMN IF NOT EXISTS threat_intel_matches INTEGER DEFAULT 0;");
       isPostgresReady = true;
       dbStatus = { type: "postgres", ready: true, persistent: true, error: null };
       console.log("[CipherCheck Database] Successfully connected to PostgreSQL database and applied/verified migrations.");
@@ -184,6 +187,13 @@ export async function initDatabase() {
       client.release();
     }
   } catch (err) {
+    if (pgPool) {
+      try {
+        await pgPool.end();
+      } catch (_) {}
+      pgPool = null;
+    }
+    isPostgresReady = false;
     if (isProduction) {
       const errMsg = `[CipherCheck Database] FATAL: Failed to connect to PostgreSQL in production: ${err.message}`;
       console.error(errMsg);
@@ -192,8 +202,6 @@ export async function initDatabase() {
     }
     console.warn("[CipherCheck Database] Warning: Failed to connect to PostgreSQL:", err.message);
     console.warn("[CipherCheck Database] Falling back to ephemeral in-memory store for session and scan storage.");
-    pgPool = null;
-    isPostgresReady = false;
     dbStatus = { type: "in-memory-fallback", ready: true, persistent: false, error: err.message };
     return dbStatus;
   }
@@ -539,14 +547,22 @@ export async function saveReport(userId, analysisData) {
       : [],
   };
 
+  const threatIntelStatus = String(
+    analysisData.threatIntelligence?.summary?.hasConfirmedThreat
+      ? "confirmed_threat"
+      : analysisData.threatIntelligence?.status || analysisData.verdict?.categoryKey || "unverified"
+  );
+  const threatIntelMatches = Number(analysisData.threatIntelligence?.summary?.maliciousMatches || 0);
+
   if (isPostgresReady && pgPool) {
     const res = await pgPool.query(
       `INSERT INTO saved_reports 
-        (id, user_id, url, redacted_url, hostname, registered_domain, risk_level, verdict_title, verdict_summary, findings_count, analysis_data, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12)
+        (id, user_id, url, redacted_url, hostname, registered_domain, risk_level, verdict_title, verdict_summary, findings_count, analysis_data, threat_intel_status, threat_intel_matches, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, $14)
        RETURNING id, user_id as "userId", url, redacted_url as "redactedUrl", hostname, registered_domain as "registeredDomain",
                  risk_level as "riskLevel", verdict_title as "verdictTitle", verdict_summary as "verdictSummary",
-                 findings_count as "findingsCount", analysis_data as "analysisData", created_at as "createdAt"`,
+                 findings_count as "findingsCount", threat_intel_status as "threatIntelStatus",
+                 threat_intel_matches as "threatIntelMatches", analysis_data as "analysisData", created_at as "createdAt"`,
       [
         id,
         String(userId),
@@ -559,6 +575,8 @@ export async function saveReport(userId, analysisData) {
         verdictSummary,
         findingsCount,
         JSON.stringify(sanitizedAnalysisData),
+        threatIntelStatus,
+        threatIntelMatches,
         createdAt,
       ]
     );
@@ -582,6 +600,8 @@ export async function saveReport(userId, analysisData) {
     verdictTitle,
     verdictSummary,
     findingsCount,
+    threatIntelStatus,
+    threatIntelMatches,
     analysisData: sanitizedAnalysisData,
     createdAt,
   };
@@ -649,7 +669,8 @@ export async function getSavedReports(userId, options = {}) {
     const listRes = await pgPool.query(
       `SELECT id, user_id as "userId", url, redacted_url as "redactedUrl", hostname, registered_domain as "registeredDomain",
               risk_level as "riskLevel", verdict_title as "verdictTitle", verdict_summary as "verdictSummary",
-              findings_count as "findingsCount", analysis_data as "analysisData", created_at as "createdAt"
+              findings_count as "findingsCount", COALESCE(threat_intel_status, 'unverified') as "threatIntelStatus",
+              COALESCE(threat_intel_matches, 0) as "threatIntelMatches", analysis_data as "analysisData", created_at as "createdAt"
        FROM saved_reports
        WHERE ${whereSql}
        ORDER BY created_at DESC
@@ -731,7 +752,8 @@ export async function getSavedReportById(reportId, userId) {
     const res = await pgPool.query(
       `SELECT id, user_id as "userId", url, redacted_url as "redactedUrl", hostname, registered_domain as "registeredDomain",
               risk_level as "riskLevel", verdict_title as "verdictTitle", verdict_summary as "verdictSummary",
-              findings_count as "findingsCount", analysis_data as "analysisData", created_at as "createdAt"
+              findings_count as "findingsCount", COALESCE(threat_intel_status, 'unverified') as "threatIntelStatus",
+              COALESCE(threat_intel_matches, 0) as "threatIntelMatches", analysis_data as "analysisData", created_at as "createdAt"
        FROM saved_reports
        WHERE id = $1 AND user_id = $2
        LIMIT 1`,
