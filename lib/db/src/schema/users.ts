@@ -10,6 +10,7 @@ export const usersTable = pgTable("users", {
   emailVerificationExpires: timestamp("email_verification_expires", { withTimezone: true }),
   passwordResetToken: varchar("password_reset_token", { length: 255 }),
   passwordResetExpires: timestamp("password_reset_expires", { withTimezone: true }),
+  nickname: varchar("nickname", { length: 30 }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

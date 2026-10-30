@@ -1,13 +1,47 @@
 import nodemailer from "nodemailer";
 
 let cachedTransporter = null;
+let customTransporter = null;
 
 export function isSmtpConfigured() {
+  if (customTransporter) return true;
   return Boolean(
     process.env.SMTP_HOST &&
     process.env.SMTP_USER &&
     process.env.SMTP_PASS
   );
+}
+
+export function getSmtpStatus() {
+  const host = Boolean(process.env.SMTP_HOST);
+  const user = Boolean(process.env.SMTP_USER);
+  const pass = Boolean(process.env.SMTP_PASS);
+  const configured = isSmtpConfigured();
+  const missingVariables = [];
+  if (!host) missingVariables.push("SMTP_HOST");
+  if (!user) missingVariables.push("SMTP_USER");
+  if (!pass) missingVariables.push("SMTP_PASS");
+
+  return {
+    configured,
+    missingVariables,
+    requiredVariables: ["SMTP_HOST", "SMTP_USER", "SMTP_PASS"],
+    optionalVariables: ["SMTP_PORT", "SMTP_FROM", "APP_URL"],
+  };
+}
+
+export function setCustomTransporter(transporter) {
+  customTransporter = transporter;
+}
+
+export function resetSmtpTransporter() {
+  if (cachedTransporter && typeof cachedTransporter.close === "function") {
+    try {
+      cachedTransporter.close();
+    } catch (_) {}
+  }
+  cachedTransporter = null;
+  customTransporter = null;
 }
 
 export function isApplicationHost(hostname) {
@@ -126,6 +160,9 @@ export function getBaseUrl(req = null) {
 }
 
 export function getSmtpTransporter() {
+  if (customTransporter) {
+    return customTransporter;
+  }
   if (!isSmtpConfigured()) {
     return null;
   }
@@ -146,6 +183,27 @@ export function getSmtpTransporter() {
   }
   return cachedTransporter;
 }
+
+export async function verifySmtpConnection() {
+  const transporter = getSmtpTransporter();
+  if (!transporter) {
+    const status = getSmtpStatus();
+    return {
+      ok: false,
+      error: `SMTP service is not configured. Missing required variables: ${status.missingVariables.join(", ")}`,
+      missingVariables: status.missingVariables,
+    };
+  }
+  try {
+    if (typeof transporter.verify === "function") {
+      await transporter.verify();
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message || "Failed to verify SMTP connection." };
+  }
+}
+
 
 export async function sendVerificationEmail(toEmail, token, baseUrl = null) {
   const transporter = getSmtpTransporter();

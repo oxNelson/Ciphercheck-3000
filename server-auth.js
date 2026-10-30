@@ -85,22 +85,81 @@ export async function verifyPassword(password, storedHash) {
 const memoryUsers = new Map(); // id -> user
 const memoryUsersByEmail = new Map(); // lowercase email -> user
 const memorySessions = new Map(); // sessionId -> { userId, expiresAt }
+const memorySavedReports = new Map(); // id -> reportRecord
+const memoryUserRecommendations = new Map(); // userId -> { addressed: string[], dismissed: string[] }
 
 let pgPool = null;
 let isPostgresReady = false;
+let dbStatus = {
+  type: "uninitialized",
+  ready: false,
+  persistent: false,
+  error: null,
+};
+
+export function getDatabaseStatus() {
+  return {
+    ready: dbStatus.ready,
+    type: dbStatus.type,
+    persistent: dbStatus.persistent,
+    isPostgres: isPostgresReady && !!pgPool,
+    error: dbStatus.error || null,
+  };
+}
+
+export function isDatabasePostgres() {
+  return isPostgresReady && !!pgPool;
+}
+
+export async function closeDatabase() {
+  if (pgPool) {
+    try {
+      await pgPool.end();
+    } catch (_) {}
+    pgPool = null;
+    isPostgresReady = false;
+    dbStatus = { type: "closed", ready: false, persistent: false, error: null };
+  }
+}
+
+export function resetMemoryStore() {
+  memoryUsers.clear();
+  memoryUsersByEmail.clear();
+  memorySessions.clear();
+  memorySavedReports.clear();
+  memoryUserRecommendations.clear();
+}
 
 export async function initDatabase() {
-  if (!process.env.DATABASE_URL) {
-    console.log("[CipherCheck Auth] DATABASE_URL is not configured. Running with in-memory persistence.");
-    return { type: "in-memory", ready: true };
+  const isProduction = process.env.NODE_ENV === "production";
+  const databaseUrl = process.env.DATABASE_URL;
+
+  if (!databaseUrl) {
+    if (isProduction) {
+      const errMsg = "[CipherCheck Database] FATAL: DATABASE_URL is not configured in production environment. In-memory storage is not permitted in production.";
+      console.error(errMsg);
+      dbStatus = { type: "uninitialized", ready: false, persistent: false, error: errMsg };
+      throw new Error(errMsg);
+    }
+    console.log("[CipherCheck Database] NOTICE: DATABASE_URL is not configured in this environment.");
+    console.log("[CipherCheck Database] Running with ephemeral in-memory persistence. Data will not persist across server restarts.");
+    dbStatus = { type: "in-memory", ready: true, persistent: false, error: null };
+    return dbStatus;
   }
 
   try {
     const pgModule = await import("pg");
     const Pool = pgModule.default?.Pool || pgModule.Pool;
-    pgPool = new Pool({
-      connectionString: process.env.DATABASE_URL,
+    const poolConfig = {
+      connectionString: databaseUrl,
       connectionTimeoutMillis: 5000,
+    };
+    if (databaseUrl.includes("sslmode=require") || databaseUrl.includes("neon.tech") || databaseUrl.includes("supabase.co")) {
+      poolConfig.ssl = { rejectUnauthorized: false };
+    }
+    pgPool = new Pool(poolConfig);
+    pgPool.on("error", (err) => {
+      console.error("[CipherCheck Database] Unexpected client error in connection pool:", err.message);
     });
 
     // Test connection
@@ -118,17 +177,25 @@ export async function initDatabase() {
       // Ensure nickname column exists
       await client.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS nickname VARCHAR(30);");
       isPostgresReady = true;
-      console.log("[CipherCheck Auth] Connected to PostgreSQL database and verified schema.");
-      return { type: "postgres", ready: true };
+      dbStatus = { type: "postgres", ready: true, persistent: true, error: null };
+      console.log("[CipherCheck Database] Successfully connected to PostgreSQL database and applied/verified migrations.");
+      return dbStatus;
     } finally {
       client.release();
     }
   } catch (err) {
-    console.warn("[CipherCheck Auth] Failed to connect to PostgreSQL:", err.message);
-    console.warn("[CipherCheck Auth] Falling back to secure in-memory store for session/user storage.");
+    if (isProduction) {
+      const errMsg = `[CipherCheck Database] FATAL: Failed to connect to PostgreSQL in production: ${err.message}`;
+      console.error(errMsg);
+      dbStatus = { type: "postgres-error", ready: false, persistent: false, error: errMsg };
+      throw new Error(errMsg);
+    }
+    console.warn("[CipherCheck Database] Warning: Failed to connect to PostgreSQL:", err.message);
+    console.warn("[CipherCheck Database] Falling back to ephemeral in-memory store for session and scan storage.");
     pgPool = null;
     isPostgresReady = false;
-    return { type: "in-memory-fallback", ready: true, error: err.message };
+    dbStatus = { type: "in-memory-fallback", ready: true, persistent: false, error: err.message };
+    return dbStatus;
   }
 }
 
@@ -438,8 +505,6 @@ export function redactSensitiveUrl(rawUrl) {
   }
 }
 
-const memorySavedReports = new Map(); // id -> reportRecord
-
 export async function saveReport(userId, analysisData) {
   if (!userId) {
     throw new Error("User ID is required to save a report.");
@@ -478,7 +543,7 @@ export async function saveReport(userId, analysisData) {
     const res = await pgPool.query(
       `INSERT INTO saved_reports 
         (id, user_id, url, redacted_url, hostname, registered_domain, risk_level, verdict_title, verdict_summary, findings_count, analysis_data, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12)
        RETURNING id, user_id as "userId", url, redacted_url as "redactedUrl", hostname, registered_domain as "registeredDomain",
                  risk_level as "riskLevel", verdict_title as "verdictTitle", verdict_summary as "verdictSummary",
                  findings_count as "findingsCount", analysis_data as "analysisData", created_at as "createdAt"`,
@@ -497,7 +562,13 @@ export async function saveReport(userId, analysisData) {
         createdAt,
       ]
     );
-    return res.rows[0];
+    const row = res.rows[0];
+    if (row && typeof row.analysisData === "string") {
+      try {
+        row.analysisData = JSON.parse(row.analysisData);
+      } catch (_) {}
+    }
+    return row;
   }
 
   const record = {
@@ -586,8 +657,13 @@ export async function getSavedReports(userId, options = {}) {
       queryParams
     );
 
+    const reports = listRes.rows.map((row) => ({
+      ...row,
+      analysisData: typeof row.analysisData === "string" ? JSON.parse(row.analysisData) : row.analysisData,
+    }));
+
     return {
-      reports: listRes.rows,
+      reports,
       total: totalMatching,
       limit,
       offset,
@@ -661,7 +737,12 @@ export async function getSavedReportById(reportId, userId) {
        LIMIT 1`,
       [String(reportId), uid]
     );
-    return res.rows[0] || null;
+    const row = res.rows[0];
+    if (!row) return null;
+    return {
+      ...row,
+      analysisData: typeof row.analysisData === "string" ? JSON.parse(row.analysisData) : row.analysisData,
+    };
   }
 
   const record = memorySavedReports.get(String(reportId));
@@ -707,8 +788,6 @@ export async function clearAllSavedReports(userId) {
 // User Recommendation Preferences & Addressed / Dismissed State
 // ============================================================================
 
-const memoryUserRecommendations = new Map(); // userId -> { addressed: string[], dismissed: string[] }
-
 export async function getUserRecommendationStatus(userId) {
   if (!userId) return { addressed: [], dismissed: [] };
   const uid = String(userId);
@@ -723,9 +802,19 @@ export async function getUserRecommendationStatus(userId) {
       return { addressed: [], dismissed: [] };
     }
     const row = res.rows[0];
+    const parseIds = (raw) => {
+      if (Array.isArray(raw)) return raw;
+      if (typeof raw === "string") {
+        try {
+          const parsed = JSON.parse(raw);
+          return Array.isArray(parsed) ? parsed : [];
+        } catch (_) {}
+      }
+      return [];
+    };
     return {
-      addressed: Array.isArray(row.addressedIds) ? row.addressedIds : [],
-      dismissed: Array.isArray(row.dismissedIds) ? row.dismissedIds : [],
+      addressed: parseIds(row.addressedIds),
+      dismissed: parseIds(row.dismissedIds),
     };
   }
 
@@ -745,7 +834,7 @@ export async function saveUserRecommendationStatus(userId, { addressed = [], dis
   if (isPostgresReady && pgPool) {
     await pgPool.query(
       `INSERT INTO user_recommendations (user_id, addressed_ids, dismissed_ids, updated_at)
-       VALUES ($1, $2, $3, NOW())
+       VALUES ($1, $2::jsonb, $3::jsonb, NOW())
        ON CONFLICT (user_id) DO UPDATE SET
          addressed_ids = EXCLUDED.addressed_ids,
          dismissed_ids = EXCLUDED.dismissed_ids,

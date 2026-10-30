@@ -372,6 +372,19 @@ function renderAnalysis(password) {
       }
     });
   }
+
+  // Update accessible textual segment legend
+  const legendItems = document.querySelectorAll(".meter-legend-item");
+  if (legendItems && legendItems.length > 0) {
+    legendItems.forEach((item) => {
+      if (item.dataset.level === band.key) {
+        item.classList.add("is-current");
+      } else {
+        item.classList.remove("is-current");
+      }
+    });
+  }
+
   if (fill) {
     fill.style.width = `${result.score}%`;
     fill.dataset.level = band.key;
@@ -379,6 +392,16 @@ function renderAnalysis(password) {
   summary.textContent = `Length: ${result.length} characters · ${Object.values(result.categories).filter(Boolean).length} of 4 character types · ${result.findings.length} detected ${result.findings.length === 1 ? "weakness" : "weaknesses"}.`;
   findingCount.textContent = `${result.findings.length} ${result.findings.length === 1 ? "finding" : "findings"}`;
   findingsList.replaceChildren();
+
+  // Show remediation quick-action if weaknesses detected or score not in highest band
+  const remediateBar = document.getElementById("auditorRemediateBar");
+  if (remediateBar) {
+    if (result.score < 85 || result.findings.length > 0) {
+      remediateBar.style.display = "flex";
+    } else {
+      remediateBar.style.display = "none";
+    }
+  }
 
   if (result.findings.length === 0) {
     const item = document.createElement("li");
@@ -423,6 +446,7 @@ function initAnalyzer() {
   const input = document.getElementById("passwordInput");
   const analyzeButton = document.getElementById("analyzeButton");
   const results = document.getElementById("analysisResults");
+  const auditorGenerateBtn = document.getElementById("auditorGenerateBtn");
 
   const analyze = () => {
     if (!input.value) {
@@ -454,6 +478,11 @@ function initAnalyzer() {
           seg.removeAttribute("data-level");
         });
       }
+      const legendItems = document.querySelectorAll(".meter-legend-item");
+      legendItems.forEach((item) => item.classList.remove("is-current"));
+      const remediateBar = document.getElementById("auditorRemediateBar");
+      if (remediateBar) remediateBar.style.display = "none";
+
       if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
         window.dispatchEvent(new CustomEvent("ciphercheck:passwordanalysis", { detail: { analysis: null } }));
       }
@@ -461,6 +490,41 @@ function initAnalyzer() {
     }
     renderAnalysis(input.value);
   });
+
+  // Wire jump from Auditor to Generator
+  if (auditorGenerateBtn) {
+    auditorGenerateBtn.addEventListener("click", () => {
+      const generatorEl = document.getElementById("generatorPanel");
+      if (generatorEl) {
+        const prefersReduced =
+          typeof window !== "undefined" &&
+          window.matchMedia &&
+          window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        generatorEl.scrollIntoView({ behavior: prefersReduced ? "auto" : "smooth", block: "start" });
+        if (typeof window !== "undefined" && window.history && window.history.pushState) {
+          window.history.pushState(null, "", "#generatorPanel");
+        }
+        document.querySelectorAll(".sc-nav-btn").forEach((b) => {
+          b.classList.remove("active");
+          b.setAttribute("aria-selected", "false");
+        });
+        const navBtnGenerator = document.getElementById("navBtnGenerator");
+        if (navBtnGenerator) {
+          navBtnGenerator.classList.add("active");
+          navBtnGenerator.setAttribute("aria-selected", "true");
+        }
+        const lengthInput = document.getElementById("lengthInput");
+        if (lengthInput && Number(lengthInput.value) < 20) {
+          lengthInput.value = "20";
+          lengthInput.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+        const generateButton = document.getElementById("generateButton");
+        if (generateButton) generateButton.click();
+        const generatedPassword = document.getElementById("generatedPassword");
+        setTimeout(() => generatedPassword?.focus(), 350);
+      }
+    });
+  }
 }
 
 function initGenerator() {
@@ -472,11 +536,16 @@ function initGenerator() {
   const output = document.getElementById("generatedPassword");
   const generateButton = document.getElementById("generateButton");
   const copyButton = document.getElementById("copyButton");
+  const copyButtonText = document.getElementById("copyButtonText");
+  const testInAuditorBtn = document.getElementById("testInAuditorBtn");
   const status = document.getElementById("generatorStatus");
+  const presetButtons = document.querySelectorAll(".preset-btn");
 
   const clearOutput = () => {
     output.value = "";
     copyButton.disabled = true;
+    if (testInAuditorBtn) testInAuditorBtn.disabled = true;
+    if (copyButtonText) copyButtonText.textContent = "Copy";
     status.textContent = "";
     status.removeAttribute("data-state");
   };
@@ -518,7 +587,31 @@ function initGenerator() {
     validateConfiguration();
   };
 
-  lengthInput.addEventListener("input", onConfigurationChange);
+  lengthInput.addEventListener("input", () => {
+    const currentVal = lengthInput.value.trim();
+    presetButtons.forEach((b) => {
+      if (b.dataset.preset === currentVal) {
+        b.classList.add("active");
+      } else {
+        b.classList.remove("active");
+      }
+    });
+    onConfigurationChange();
+  });
+
+  presetButtons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const val = btn.dataset.preset;
+      if (val) {
+        lengthInput.value = val;
+        presetButtons.forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        onConfigurationChange();
+        generateButton.click();
+      }
+    });
+  });
+
   for (const input of categoryInputs) {
     input.addEventListener("change", onConfigurationChange);
   }
@@ -538,6 +631,7 @@ function initGenerator() {
         configuration.categories,
       );
       copyButton.disabled = false;
+      if (testInAuditorBtn) testInAuditorBtn.disabled = false;
       status.textContent = "Generated locally with Web Crypto.";
       status.removeAttribute("data-state");
     } catch (error) {
@@ -559,12 +653,51 @@ function initGenerator() {
       await navigator.clipboard.writeText(output.value);
       status.textContent = "Password copied to clipboard.";
       status.removeAttribute("data-state");
+      if (copyButtonText) {
+        copyButtonText.textContent = "✓ Copied";
+        setTimeout(() => {
+          if (copyButtonText) copyButtonText.textContent = "Copy";
+        }, 1800);
+      }
     } catch {
       status.textContent =
         "Could not copy automatically. Select the generated password and copy it manually.";
       status.dataset.state = "error";
     }
   });
+
+  // Transfer generated password into Auditor
+  if (testInAuditorBtn) {
+    testInAuditorBtn.addEventListener("click", () => {
+      if (!output.value) return;
+      const pwInput = document.getElementById("passwordInput");
+      if (pwInput) {
+        pwInput.value = output.value;
+        pwInput.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      const analyzerEl = document.getElementById("analyzerPanel");
+      if (analyzerEl) {
+        const prefersReduced =
+          typeof window !== "undefined" &&
+          window.matchMedia &&
+          window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        analyzerEl.scrollIntoView({ behavior: prefersReduced ? "auto" : "smooth", block: "start" });
+        if (typeof window !== "undefined" && window.history && window.history.pushState) {
+          window.history.pushState(null, "", "#analyzerPanel");
+        }
+        document.querySelectorAll(".sc-nav-btn").forEach((b) => {
+          b.classList.remove("active");
+          b.setAttribute("aria-selected", "false");
+        });
+        const navBtnAnalyzer = document.getElementById("navBtnAnalyzer");
+        if (navBtnAnalyzer) {
+          navBtnAnalyzer.classList.add("active");
+          navBtnAnalyzer.setAttribute("aria-selected", "true");
+        }
+        setTimeout(() => pwInput?.focus(), 300);
+      }
+    });
+  }
 
   validateConfiguration();
 }
@@ -3052,6 +3185,7 @@ function initSecurityCenter() {
   const navBtnGenerator = document.getElementById("navBtnGenerator");
   const navBtnUrl = document.getElementById("navBtnUrl");
   const navBtnDashboard = document.getElementById("navBtnDashboard");
+  const navBtnRecommendations = document.getElementById("navBtnRecommendations");
   const navRecsBadge = document.getElementById("navRecsBadge");
 
   const postureCardPassword = document.getElementById("postureCardPassword");
@@ -3498,31 +3632,100 @@ function initSecurityCenter() {
     { btn: navBtnGenerator, target: "generatorPanel" },
     { btn: navBtnUrl, target: "urlPanel" },
     { btn: navBtnDashboard, target: "dashboardPanel" },
+    { btn: navBtnRecommendations, target: "recommendationsSection" },
   ];
+
+  function navigateTo(target, updateHistory = true) {
+    const el = document.getElementById(target);
+    if (!el) return;
+    const prefersReduced =
+      typeof window !== "undefined" &&
+      window.matchMedia &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    el.scrollIntoView({ behavior: prefersReduced ? "auto" : "smooth", block: "start" });
+    if (updateHistory && typeof window !== "undefined" && window.history && window.history.pushState) {
+      window.history.pushState(null, "", `#${target}`);
+    }
+    navBtns.forEach((item) => {
+      if (item.target === target) {
+        item.btn?.classList.add("active");
+        item.btn?.setAttribute("aria-selected", "true");
+      } else {
+        item.btn?.classList.remove("active");
+        item.btn?.setAttribute("aria-selected", "false");
+      }
+    });
+
+    if (target === "analyzerPanel") {
+      setTimeout(() => document.getElementById("passwordInput")?.focus(), 250);
+    } else if (target === "generatorPanel") {
+      setTimeout(() => document.getElementById("lengthInput")?.focus(), 250);
+    } else if (target === "urlPanel") {
+      setTimeout(() => document.getElementById("urlInput")?.focus(), 250);
+    } else if (target === "dashboardPanel") {
+      setTimeout(() => document.getElementById("dashboardSearchInput")?.focus(), 250);
+    }
+  }
 
   navBtns.forEach(({ btn, target }) => {
     if (!btn) return;
     btn.addEventListener("click", (e) => {
       e.preventDefault();
-      const el = document.getElementById(target);
-      if (el) {
-        const prefersReduced =
-          typeof window !== "undefined" &&
-          window.matchMedia &&
-          window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-        el.scrollIntoView({ behavior: prefersReduced ? "auto" : "smooth", block: "start" });
-        navBtns.forEach((item) => item.btn?.classList.remove("active"));
-        btn.classList.add("active");
-        if (target === "analyzerPanel") {
-          document.getElementById("passwordInput")?.focus();
-        } else if (target === "generatorPanel") {
-          document.getElementById("lengthInput")?.focus();
-        } else if (target === "urlPanel") {
-          document.getElementById("urlInput")?.focus();
-        }
+      navigateTo(target, true);
+    });
+  });
+
+  // Enable direct keyboard & touch interaction on posture summary cards
+  const postureCardMap = [
+    { card: postureCardPassword, target: "analyzerPanel" },
+    { card: postureCardUrl, target: "urlPanel" },
+    { card: postureCardHistory, target: "dashboardPanel" },
+    { card: postureCardGuidance, target: "recommendationsSection" },
+  ];
+
+  postureCardMap.forEach(({ card, target }) => {
+    if (!card) return;
+    card.addEventListener("click", () => navigateTo(target, true));
+    card.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        navigateTo(target, true);
       }
     });
   });
+
+  // Support direct deep linking on load and browser back/forward history navigation
+  if (typeof window !== "undefined") {
+    const initialHash = (window.location.hash || "").replace(/^#/, "");
+    if (initialHash && document.getElementById(initialHash)) {
+      setTimeout(() => navigateTo(initialHash, false), 100);
+    }
+    window.addEventListener("hashchange", () => {
+      const currentHash = (window.location.hash || "").replace(/^#/, "");
+      if (currentHash && document.getElementById(currentHash)) {
+        navigateTo(currentHash, false);
+      }
+    });
+  }
+
+  // Keyboard navigation on tool tabs (ArrowLeft / ArrowRight)
+  const navWrap = document.querySelector(".nav-links-wrap");
+  if (navWrap) {
+    navWrap.addEventListener("keydown", (e) => {
+      const activeBtns = navBtns.map((n) => n.btn).filter(Boolean);
+      const currentIndex = activeBtns.indexOf(document.activeElement);
+      if (currentIndex === -1) return;
+      if (e.key === "ArrowRight") {
+        e.preventDefault();
+        const nextIndex = (currentIndex + 1) % activeBtns.length;
+        activeBtns[nextIndex].focus();
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        const prevIndex = (currentIndex - 1 + activeBtns.length) % activeBtns.length;
+        activeBtns[prevIndex].focus();
+      }
+    });
+  }
 
   if (typeof window !== "undefined" && "IntersectionObserver" in window) {
     const navObserver = new IntersectionObserver(
@@ -3533,8 +3736,10 @@ function initSecurityCenter() {
             navBtns.forEach((item) => {
               if (item.target === id) {
                 item.btn?.classList.add("active");
+                item.btn?.setAttribute("aria-selected", "true");
               } else {
                 item.btn?.classList.remove("active");
+                item.btn?.setAttribute("aria-selected", "false");
               }
             });
           }

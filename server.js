@@ -9,6 +9,7 @@ import crypto from "crypto";
 import { fileURLToPath } from "url";
 import {
   initDatabase,
+  getDatabaseStatus,
   checkRateLimit,
   resetRateLimit,
   hashPassword,
@@ -38,6 +39,8 @@ import {
 } from "./server-auth.js";
 import {
   isSmtpConfigured,
+  getSmtpStatus,
+  verifySmtpConnection,
   sendVerificationEmail,
   sendPasswordResetEmail,
   getBaseUrl,
@@ -79,7 +82,20 @@ function getSessionId(req) {
 
 
 async function startServer() {
-  await initDatabase();
+  try {
+    await initDatabase();
+  } catch (err) {
+    console.error("[CipherCheck Server] Fatal database initialization failure:", err.message);
+    process.exit(1);
+  }
+
+  const smtpStatus = getSmtpStatus();
+  if (smtpStatus.configured) {
+    console.log(`[CipherCheck SMTP] Configured. Host: ${process.env.SMTP_HOST}, Port: ${process.env.SMTP_PORT || 587}`);
+  } else {
+    console.log(`[CipherCheck SMTP] NOTICE: SMTP email delivery is not configured. Missing required environment variables: ${smtpStatus.missingVariables.join(", ")}`);
+    console.log("[CipherCheck SMTP] Email verification and password recovery links will require SMTP configuration.");
+  }
 
   let expressApp = null;
   try {
@@ -124,9 +140,17 @@ async function startServer() {
 
     // Auth status (SMTP configuration & DB connectivity check)
     app.get("/api/auth/status", (_req, res) => {
+      const db = getDatabaseStatus();
+      const smtp = getSmtpStatus();
       return res.json({
-        smtpConfigured: isSmtpConfigured(),
-        databaseConnected: true,
+        smtpConfigured: smtp.configured,
+        missingVariables: smtp.missingVariables,
+        requiredVariables: smtp.requiredVariables,
+        optionalVariables: smtp.optionalVariables,
+        databaseConnected: db.ready,
+        databaseType: db.type,
+        persistent: db.persistent,
+        storage: db.persistent ? "postgresql" : "in-memory-fallback",
       });
     });
 
@@ -166,6 +190,7 @@ async function startServer() {
         const { sessionId, expiresAt } = await createSession(user.id);
 
         let emailSent = false;
+        let emailNotice = null;
         if (isSmtpConfigured()) {
           try {
             const verificationToken = crypto.randomBytes(32).toString("hex");
@@ -175,11 +200,15 @@ async function startServer() {
             emailSent = true;
           } catch (mailErr) {
             console.warn("[Auth] Verification email delivery notice:", mailErr.message);
+            emailNotice = "Verification email could not be delivered. Please use resend verification.";
           }
+        } else {
+          const smtp = getSmtpStatus();
+          emailNotice = `SMTP is not configured (missing: ${smtp.missingVariables.join(", ")}). Email verification was not sent.`;
         }
 
         res.setHeader("Set-Cookie", serializeSessionCookie(sessionId, expiresAt, isSecure));
-        return res.status(201).json({ user, token: sessionId, emailSent });
+        return res.status(201).json({ user, token: sessionId, emailSent, emailNotice });
       } catch (err) {
         console.error("[Auth] Registration error:", err);
         return res.status(500).json({ error: "An unexpected error occurred during registration." });
@@ -315,14 +344,22 @@ async function startServer() {
 
     // Auth: Email Verification (handles both token link and manual input)
     app.post("/api/auth/verify-email", async (req, res) => {
-      if (!isSmtpConfigured()) {
-        return res.status(503).json({
-          error: "SMTP email delivery service is not configured. Email verification is currently unavailable in this environment.",
-        });
+      // If user is already authenticated and verified, report success gracefully
+      const sessionId = getSessionId(req);
+      if (sessionId) {
+        const sessionData = await findSession(sessionId);
+        if (sessionData?.user?.isVerified) {
+          return res.json({
+            success: true,
+            message: "Your email is already verified.",
+            user: sessionData.user,
+            token: sessionId,
+          });
+        }
       }
 
       const token = req.body?.token || req.query?.token;
-      if (!token || typeof token !== "string") {
+      if (!token || typeof token !== "string" || !token.trim()) {
         return res.status(400).json({ error: "Verification token is required." });
       }
 
@@ -332,22 +369,32 @@ async function startServer() {
       }
 
       const isSecure = checkIsSecure(req);
-      const { sessionId, expiresAt } = await createSession(verifiedUser.id);
-      res.setHeader("Set-Cookie", serializeSessionCookie(sessionId, expiresAt, isSecure));
+      const newSession = await createSession(verifiedUser.id);
+      res.setHeader("Set-Cookie", serializeSessionCookie(newSession.sessionId, newSession.expiresAt, isSecure));
 
       return res.json({
         success: true,
         message: "Your email has been verified successfully!",
         user: verifiedUser,
-        token: sessionId,
+        token: newSession.sessionId,
       });
     });
 
     // Auth: Resend Verification Email
     app.post("/api/auth/resend-verification", async (req, res) => {
+      const clientIp = req.ip || req.socket.remoteAddress || "127.0.0.1";
+      const rate = checkRateLimit(`resend:${clientIp}`);
+      if (!rate.allowed) {
+        return res.status(429).json({
+          error: `Too many verification requests. Please wait ${rate.resetInSeconds} seconds before trying again.`,
+        });
+      }
+
       if (!isSmtpConfigured()) {
+        const smtp = getSmtpStatus();
         return res.status(503).json({
           error: "SMTP email delivery service is not configured.",
+          missingVariables: smtp.missingVariables,
         });
       }
 
@@ -372,16 +419,26 @@ async function startServer() {
         await sendVerificationEmail(sessionData.user.email, token, getBaseUrl(req));
         return res.json({ success: true, message: "Verification email has been sent." });
       } catch (err) {
-        console.error("[Auth] Resend verification error:", err);
+        console.error("[Auth] Resend verification error:", err.message);
         return res.status(500).json({ error: "Failed to send verification email. Please check SMTP configuration." });
       }
     });
 
     // Auth: Forgot Password Request
     app.post("/api/auth/forgot-password", async (req, res) => {
+      const clientIp = req.ip || req.socket.remoteAddress || "127.0.0.1";
+      const rate = checkRateLimit(`forgot:${clientIp}`);
+      if (!rate.allowed) {
+        return res.status(429).json({
+          error: `Too many password reset requests. Please wait ${rate.resetInSeconds} seconds before trying again.`,
+        });
+      }
+
       if (!isSmtpConfigured()) {
+        const smtp = getSmtpStatus();
         return res.status(503).json({
           error: "SMTP email delivery service is not configured. Password recovery is unavailable in this environment.",
+          missingVariables: smtp.missingVariables,
         });
       }
 
@@ -405,22 +462,24 @@ async function startServer() {
           message: "If an account exists with this email address, a password reset link has been sent.",
         });
       } catch (err) {
-        console.error("[Auth] Forgot password error:", err);
+        console.error("[Auth] Forgot password error:", err.message);
         return res.status(500).json({ error: "Failed to process password reset request." });
       }
     });
 
     // Auth: Reset Password Submission
     app.post("/api/auth/reset-password", async (req, res) => {
-      if (!isSmtpConfigured()) {
-        return res.status(503).json({
-          error: "SMTP email delivery service is not configured.",
+      const clientIp = req.ip || req.socket.remoteAddress || "127.0.0.1";
+      const rate = checkRateLimit(`reset:${clientIp}`);
+      if (!rate.allowed) {
+        return res.status(429).json({
+          error: `Too many password reset attempts. Please wait ${rate.resetInSeconds} seconds before trying again.`,
         });
       }
 
       const { token, newPassword, password } = req.body || {};
       const targetPassword = typeof newPassword === "string" ? newPassword : password;
-      if (!token || typeof token !== "string") {
+      if (!token || typeof token !== "string" || !token.trim()) {
         return res.status(400).json({ error: "Password reset token is required." });
       }
       if (typeof targetPassword !== "string" || targetPassword.length < 8) {
@@ -438,7 +497,7 @@ async function startServer() {
           message: "Your password has been reset successfully. You can now sign in with your new password.",
         });
       } catch (err) {
-        console.error("[Auth] Reset password error:", err);
+        console.error("[Auth] Reset password error:", err.message);
         return res.status(500).json({ error: "Failed to reset password." });
       }
     });

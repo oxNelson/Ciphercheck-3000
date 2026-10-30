@@ -112,9 +112,9 @@
         </section>
 
         <!-- Security Center Hub Navigation & Quick Posture Strip -->
-        <nav class="security-center-nav" id="securityCenterNav" aria-label="Security Center Tools Navigation">
-          <div class="nav-links-wrap">
-            <a href="#securityCenterPanel" class="sc-nav-btn active" id="navBtnSecurityCenter" data-target="securityCenterPanel">
+        <nav class="security-center-nav" id="securityCenterNav" aria-label="Security Center Tools Navigation" role="navigation">
+          <div class="nav-links-wrap" role="tablist" aria-label="Security Tools Navigation Tabs">
+            <a href="#securityCenterPanel" class="sc-nav-btn active" id="navBtnSecurityCenter" data-target="securityCenterPanel" role="tab" aria-selected="true" aria-controls="securityCenterPanel">
               <span class="sc-nav-icon" aria-hidden="true">
                 <svg viewBox="0 0 20 20" fill="none" width="14" height="14">
                   <path d="M10 2.5 17 5.5v5c0 4.5-3 7.5-7 8.5-4-1-7-4-7-8.5v-5L10 2.5Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
@@ -123,21 +123,29 @@
               <span>Security Center</span>
               <span class="sc-badge-count" id="navRecsBadge">0</span>
             </a>
-            <a href="#analyzerPanel" class="sc-nav-btn" id="navBtnAnalyzer" data-target="analyzerPanel">
+            <a href="#analyzerPanel" class="sc-nav-btn" id="navBtnAnalyzer" data-target="analyzerPanel" role="tab" aria-selected="false" aria-controls="analyzerPanel">
               <span class="sc-nav-icon" aria-hidden="true">01</span>
               <span>Password Auditor</span>
             </a>
-            <a href="#generatorPanel" class="sc-nav-btn" id="navBtnGenerator" data-target="generatorPanel">
+            <a href="#generatorPanel" class="sc-nav-btn" id="navBtnGenerator" data-target="generatorPanel" role="tab" aria-selected="false" aria-controls="generatorPanel">
               <span class="sc-nav-icon" aria-hidden="true">02</span>
               <span>Generator</span>
             </a>
-            <a href="#urlPanel" class="sc-nav-btn" id="navBtnUrl" data-target="urlPanel">
+            <a href="#urlPanel" class="sc-nav-btn" id="navBtnUrl" data-target="urlPanel" role="tab" aria-selected="false" aria-controls="urlPanel">
               <span class="sc-nav-icon" aria-hidden="true">03</span>
               <span>Link Risk</span>
             </a>
-            <a href="#dashboardPanel" class="sc-nav-btn" id="navBtnDashboard" data-target="dashboardPanel">
+            <a href="#dashboardPanel" class="sc-nav-btn" id="navBtnDashboard" data-target="dashboardPanel" role="tab" aria-selected="false" aria-controls="dashboardPanel">
               <span class="sc-nav-icon" aria-hidden="true">04</span>
               <span>History</span>
+            </a>
+            <a href="#recommendationsSection" class="sc-nav-btn" id="navBtnRecommendations" data-target="recommendationsSection" role="tab" aria-selected="false" aria-controls="recommendationsSection">
+              <span class="sc-nav-icon" aria-hidden="true">
+                <svg viewBox="0 0 20 20" fill="none" width="14" height="14">
+                  <path d="M7 14.5h6m-4.5 2h3M10 3a5.5 5.5 0 0 0-3.5 9.7V14h7v-1.3A5.5 5.5 0 0 0 10 3Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </span>
+              <span>Recommendations</span>
             </a>
           </div>
         </nav>
@@ -158,7 +166,7 @@
 
             <!-- Security Posture Summary Cards -->
             <div class="posture-summary-grid" id="postureSummaryGrid" aria-label="Security Posture Summary">
-              <div class="posture-card" id="postureCardPassword" data-state="idle">
+              <div class="posture-card" id="postureCardPassword" data-state="idle" role="button" tabindex="0" aria-label="Password Auditor Posture — Click to jump to Password Auditor">
                 <div class="posture-card-header">
                   <span class="posture-icon" aria-hidden="true">
                     <svg viewBox="0 0 20 20" fill="none" width="16" height="16">
@@ -172,7 +180,7 @@
                 <p class="posture-detail" id="posturePasswordDetail">Enter a password below to test length, entropy, and weakness factors.</p>
               </div>
 
-              <div class="posture-card" id="postureCardUrl" data-state="idle">
+              <div class="posture-card" id="postureCardUrl" data-state="idle" role="button" tabindex="0" aria-label="Link Risk Posture — Click to jump to Link Risk Checker">
                 <div class="posture-card-header">
                   <span class="posture-icon" aria-hidden="true">
                     <svg viewBox="0 0 20 20" fill="none" width="16" height="16">
@@ -185,7 +193,7 @@
                 <p class="posture-detail" id="postureUrlDetail">Paste a URL below to check for credential tricks, homoglyphs, and raw IP hosts.</p>
               </div>
 
-              <div class="posture-card" id="postureCardHistory" data-state="idle">
+              <div class="posture-card" id="postureCardHistory" data-state="idle" role="button" tabindex="0" aria-label="Scan History Posture — Click to jump to Scan History">
                 <div class="posture-card-header">
                   <span class="posture-icon" aria-hidden="true">
                     <svg viewBox="0 0 20 20" fill="none" width="16" height="16">
@@ -199,7 +207,7 @@
                 <p class="posture-detail" id="postureHistoryDetail">Save URL assessments to monitor aggregate risk patterns across sessions.</p>
               </div>
 
-              <div class="posture-card" id="postureCardGuidance" data-state="active">
+              <div class="posture-card" id="postureCardGuidance" data-state="active" role="button" tabindex="0" aria-label="Actionable Advice Posture — Click to jump to Recommendations">
                 <div class="posture-card-header">
                   <span class="posture-icon" aria-hidden="true">
                     <svg viewBox="0 0 20 20" fill="none" width="16" height="16">
@@ -325,6 +333,15 @@
                 <span class="strength-fill" id="strengthFill"></span>
               </div>
 
+              <!-- Accessible Segmented Scale Legend -->
+              <div class="meter-bands-legend" id="meterBandsLegend" aria-hidden="true">
+                <span class="meter-legend-item" data-level="very-weak"><span class="legend-seg-num">1</span> Very Weak (0–19)</span>
+                <span class="meter-legend-item" data-level="weak"><span class="legend-seg-num">2</span> Weak (20–39)</span>
+                <span class="meter-legend-item" data-level="fair"><span class="legend-seg-num">3</span> Fair (40–64)</span>
+                <span class="meter-legend-item" data-level="strong"><span class="legend-seg-num">4</span> Strong (65–84)</span>
+                <span class="meter-legend-item" data-level="very-strong"><span class="legend-seg-num">5</span> Very Strong (85–100)</span>
+              </div>
+
               <dl class="score-components" aria-label="Score factors">
                 <div class="score-component">
                   <dt>Length</dt>
@@ -345,6 +362,21 @@
               </dl>
 
               <p class="assessment-summary" id="assessmentSummary"></p>
+
+              <!-- Natural Auditor-to-Generator Remediation Bridge -->
+              <div class="auditor-remediate-bar" id="auditorRemediateBar" style="display: none;">
+                <div class="remediate-text">
+                  <span class="remediate-label">Remediation Available</span>
+                  <p class="remediate-desc">Generate a clean 20+ character alternative without predictable patterns.</p>
+                </div>
+                <button class="button button-sm button-secondary" id="auditorGenerateBtn" type="button" data-testid="button-auditor-generate">
+                  <svg viewBox="0 0 20 20" fill="none" width="14" height="14" aria-hidden="true">
+                    <path d="M10 2.5v3m0 9v3m-7-7h3m8 0h3M5.05 5.05l2.12 2.12m5.66 5.66 2.12 2.12m0-9.9-2.12 2.12m-5.66 5.66-2.12 2.12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                    <circle cx="10" cy="10" r="3.2" stroke="currentColor" stroke-width="1.5" />
+                  </svg>
+                  <span>Generate Strong Alternative</span>
+                </button>
+              </div>
 
               <div class="findings-heading">
                 <h4>Detected factors</h4>
@@ -390,7 +422,15 @@
 
             <div class="generator-controls">
               <div class="length-row">
-                <label class="field-label" for="lengthInput">Password length</label>
+                <div class="length-label-group">
+                  <label class="field-label" for="lengthInput">Password length</label>
+                  <div class="length-presets" aria-label="Preset password lengths">
+                    <button type="button" class="preset-btn" data-preset="16">16</button>
+                    <button type="button" class="preset-btn active" data-preset="20">20</button>
+                    <button type="button" class="preset-btn" data-preset="24">24</button>
+                    <button type="button" class="preset-btn" data-preset="32">32</button>
+                  </div>
+                </div>
                 <div class="length-input-wrap">
                   <input
                     id="lengthInput"
@@ -461,7 +501,18 @@
                   data-testid="output-generated-password"
                 />
                 <button class="button button-copy" id="copyButton" type="button" disabled data-testid="button-copy">
-                  Copy
+                  <svg viewBox="0 0 20 20" fill="none" width="14" height="14" aria-hidden="true">
+                    <rect x="7" y="7" width="9" height="9" rx="1.5" stroke="currentColor" stroke-width="1.5" />
+                    <path d="M4 13V4.5A1.5 1.5 0 0 1 5.5 3H14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                  </svg>
+                  <span id="copyButtonText">Copy</span>
+                </button>
+                <button class="button button-secondary button-test-auditor" id="testInAuditorBtn" type="button" disabled title="Send to Password Auditor to inspect strength" data-testid="button-test-in-auditor">
+                  <svg viewBox="0 0 20 20" fill="none" width="14" height="14" aria-hidden="true">
+                    <circle cx="7" cy="10" r="4.25" stroke="currentColor" stroke-width="1.5"/>
+                    <path d="M11.25 10H17m-2.5 0v2.5M17 10v2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                  </svg>
+                  <span>Test in Auditor</span>
                 </button>
               </div>
               <p class="generator-status" id="generatorStatus" role="status" aria-live="polite"></p>
