@@ -401,15 +401,107 @@ function fetchApiWithTimeout(urlStr, options = {}, timeoutMs = 2500) {
 }
 
 // ============================================================================
+// Shared Multi-Tenant Platform Registry
+// ============================================================================
+
+export const SHARED_MULTI_TENANT_DOMAINS = new Set([
+  "github.com",
+  "raw.githubusercontent.com",
+  "gist.github.com",
+  "github.io",
+  "gitlab.com",
+  "gitlab.io",
+  "bitbucket.org",
+  "bitbucket.io",
+  "sourceforge.net",
+  "google.com",
+  "drive.google.com",
+  "docs.google.com",
+  "sites.google.com",
+  "storage.googleapis.com",
+  "firebaseapp.com",
+  "web.app",
+  "pages.dev",
+  "workers.dev",
+  "netlify.app",
+  "vercel.app",
+  "render.com",
+  "onrender.com",
+  "herokuapp.com",
+  "azurewebsites.net",
+  "blob.core.windows.net",
+  "s3.amazonaws.com",
+  "amazonaws.com",
+  "dropbox.com",
+  "dl.dropboxusercontent.com",
+  "discord.com",
+  "discordapp.com",
+  "discordapp.net",
+  "telegram.org",
+  "t.me",
+  "pastebin.com",
+  "notion.site",
+  "notion.so",
+  "supabase.co",
+  "glitch.me",
+  "wordpress.com",
+  "blogspot.com",
+  "weebly.com",
+  "wixsite.com",
+]);
+
+/**
+ * Checks whether a given hostname is a known shared multi-tenant hosting platform.
+ */
+export function isSharedMultiTenantPlatform(hostname) {
+  if (!hostname || typeof hostname !== "string") return false;
+  const host = hostname.toLowerCase().trim().replace(/\.+$/, "");
+  if (SHARED_MULTI_TENANT_DOMAINS.has(host)) return true;
+  for (const domain of SHARED_MULTI_TENANT_DOMAINS) {
+    if (host.endsWith("." + domain)) return true;
+  }
+  return false;
+}
+
+// ============================================================================
 // Provider Adapters
 // ============================================================================
 
 /**
  * 1. URLhaus (Abuse.ch) Provider Adapter
- * Queries the public Abuse.ch URLhaus threat database via host lookup.
- * URLhaus tracks confirmed active malware distribution sites.
+ * Queries the Abuse.ch URLhaus threat database.
+ * - Prioritizes exact URL matching (/v1/url/) using the sanitized URL.
+ * - Uses host-level matching (/v1/host/) only as secondary context.
+ * - For shared multi-tenant platforms (e.g. GitHub), host-level historical abuse
+ *   records do NOT indict unlisted URLs on that platform.
+ * - For non-shared/dedicated hosts, active malware records are treated as suspicious context.
  */
-export async function queryUrlhaus(hostname, timeoutMs = 2500) {
+export async function queryUrlhaus(targetUrlOrHost, hostOrTimeout = 2500, maybeTimeout = 2500) {
+  let targetUrl = null;
+  let targetHost = null;
+  let timeoutMs = 2500;
+
+  if (typeof hostOrTimeout === "number") {
+    timeoutMs = hostOrTimeout;
+    if (
+      typeof targetUrlOrHost === "string" &&
+      (targetUrlOrHost.startsWith("http://") || targetUrlOrHost.startsWith("https://"))
+    ) {
+      targetUrl = targetUrlOrHost;
+      try {
+        targetHost = new URL(targetUrl).hostname.toLowerCase();
+      } catch (_) {
+        targetHost = "";
+      }
+    } else {
+      targetHost = String(targetUrlOrHost || "").toLowerCase();
+    }
+  } else {
+    targetUrl = targetUrlOrHost;
+    targetHost = String(hostOrTimeout || "").toLowerCase();
+    timeoutMs = typeof maybeTimeout === "number" ? maybeTimeout : 2500;
+  }
+
   const result = {
     provider: "urlhaus",
     providerName: "URLhaus (Abuse.ch)",
@@ -419,78 +511,173 @@ export async function queryUrlhaus(hostname, timeoutMs = 2500) {
     reference: "https://urlhaus.abuse.ch/",
   };
 
+  const apiKey = process.env.URLHAUS_API_KEY || process.env.URLHAUS_AUTH_KEY;
+  const baseHeaders = {
+    "Content-Type": "application/x-www-form-urlencoded",
+    "User-Agent": "CipherCheck-ThreatIntel/3.0",
+  };
+  if (apiKey) {
+    baseHeaders["Auth-Key"] = apiKey;
+  }
+
   try {
-    const apiKey = process.env.URLHAUS_API_KEY || process.env.URLHAUS_AUTH_KEY;
-    const postData = new URLSearchParams({ host: hostname }).toString();
-    const headers = {
-      "Content-Type": "application/x-www-form-urlencoded",
-      "Content-Length": Buffer.byteLength(postData),
-      "User-Agent": "CipherCheck-ThreatIntel/3.0",
-    };
-    if (apiKey) {
-      headers["Auth-Key"] = apiKey;
+    // Phase 1: Exact URL Lookup (if a full URL is provided)
+    if (targetUrl) {
+      const urlPostData = new URLSearchParams({ url: targetUrl }).toString();
+      const urlRes = await fetchApiWithTimeout(
+        "https://urlhaus-api.abuse.ch/v1/url/",
+        {
+          method: "POST",
+          headers: {
+            ...baseHeaders,
+            "Content-Length": Buffer.byteLength(urlPostData),
+          },
+          body: urlPostData,
+        },
+        timeoutMs
+      );
+
+      if (urlRes.statusCode === 401) {
+        result.status = "unconfigured";
+        result.details = "URLhaus API requires an Abuse.ch Auth-Key (set URLHAUS_API_KEY in environment).";
+        return result;
+      }
+
+      if (urlRes.statusCode !== 200) {
+        result.status = "unavailable";
+        result.error = `HTTP ${urlRes.statusCode} from URLhaus URL lookup`;
+        return result;
+      }
+
+      let parsedUrl;
+      try {
+        parsedUrl = JSON.parse(urlRes.body);
+      } catch (_) {
+        result.status = "error";
+        result.error = "Malformed JSON from URLhaus URL lookup";
+        return result;
+      }
+
+      if (parsedUrl.query_status === "ok") {
+        // Direct, confirmed exact URL match in URLhaus
+        result.status = "malicious";
+        result.evidence = {
+          matchType: "exact_url",
+          queryStatus: parsedUrl.query_status,
+          urlhausId: parsedUrl.id,
+          threat: parsedUrl.threat || "malware_download",
+          urlStatus: parsedUrl.url_status,
+          dateAdded: parsedUrl.dateadded,
+          reporter: parsedUrl.reporter,
+          tags: Array.isArray(parsedUrl.tags) ? parsedUrl.tags : [],
+          urlhausReference:
+            parsedUrl.urlhaus_reference ||
+            (parsedUrl.id ? `https://urlhaus.abuse.ch/url/${parsedUrl.id}/` : `https://urlhaus.abuse.ch/`),
+        };
+        result.reference = result.evidence.urlhausReference;
+        result.details = `Exact URL identified in URLhaus threat feed as ${parsedUrl.threat || "malware"} (${parsedUrl.url_status || "listed"}).`;
+        return result;
+      }
     }
 
-    const res = await fetchApiWithTimeout(
-      "https://urlhaus-api.abuse.ch/v1/host/",
-      {
-        method: "POST",
-        headers,
-        body: postData,
-      },
-      timeoutMs
-    );
-
-    if (res.statusCode === 401) {
-      result.status = "unconfigured";
-      result.details = "URLhaus API requires an Abuse.ch Auth-Key (set URLHAUS_API_KEY in environment).";
-      return result;
-    }
-
-    if (res.statusCode !== 200) {
-      result.status = "unavailable";
-      result.error = `HTTP ${res.statusCode} from URLhaus API`;
-      return result;
-    }
-
-    let parsed;
-    try {
-      parsed = JSON.parse(res.body);
-    } catch (_) {
-      result.status = "error";
-      result.error = "Malformed JSON from URLhaus";
-      return result;
-    }
-
-    if (parsed.query_status === "ok") {
-      // Host is listed in URLhaus
-      const urlsCount = Array.isArray(parsed.urls) ? parsed.urls.length : 0;
-      const activeUrls = Array.isArray(parsed.urls)
-        ? parsed.urls.filter((u) => u.url_status === "online").length
-        : 0;
-
-      result.status = "malicious";
-      result.evidence = {
-        queryStatus: parsed.query_status,
-        threat: "malware_distribution",
-        firstSeen: parsed.firstseen,
-        totalUrlsFound: urlsCount,
-        activeMalwareUrls: activeUrls,
-        urlhausReference: parsed.urlhaus_reference || `https://urlhaus.abuse.ch/host/${encodeURIComponent(hostname)}/`,
-      };
-      result.reference = result.evidence.urlhausReference;
-      result.details = `Host listed in URLhaus with ${urlsCount} recorded malware URL(s) (${activeUrls} active).`;
-      return result;
-    }
-
-    if (parsed.query_status === "no_results") {
+    // Phase 2: Host Reputation Lookup (secondary context)
+    if (!targetHost) {
       result.status = "no_match";
       result.details = "No recorded malware campaigns found in URLhaus database.";
       return result;
     }
 
+    const hostPostData = new URLSearchParams({ host: targetHost }).toString();
+    const hostRes = await fetchApiWithTimeout(
+      "https://urlhaus-api.abuse.ch/v1/host/",
+      {
+        method: "POST",
+        headers: {
+          ...baseHeaders,
+          "Content-Length": Buffer.byteLength(hostPostData),
+        },
+        body: hostPostData,
+      },
+      timeoutMs
+    );
+
+    if (hostRes.statusCode === 401) {
+      result.status = "unconfigured";
+      result.details = "URLhaus API requires an Abuse.ch Auth-Key (set URLHAUS_API_KEY in environment).";
+      return result;
+    }
+
+    if (hostRes.statusCode !== 200) {
+      result.status = "unavailable";
+      result.error = `HTTP ${hostRes.statusCode} from URLhaus host lookup`;
+      return result;
+    }
+
+    let parsedHost;
+    try {
+      parsedHost = JSON.parse(hostRes.body);
+    } catch (_) {
+      result.status = "error";
+      result.error = "Malformed JSON from URLhaus host lookup";
+      return result;
+    }
+
+    if (parsedHost.query_status === "ok") {
+      const urlsCount = Array.isArray(parsedHost.urls) ? parsedHost.urls.length : 0;
+      const activeUrls = Array.isArray(parsedHost.urls)
+        ? parsedHost.urls.filter((u) => u.url_status === "online").length
+        : 0;
+      const isShared = isSharedMultiTenantPlatform(targetHost);
+
+      if (isShared) {
+        // Shared multi-tenant platform (GitHub, GitLab, Netlify, Google Drive, etc.)
+        // Historical abuse reports from third parties do NOT indict this specific URL.
+        result.status = "no_match";
+        result.evidence = {
+          matchType: "shared_platform_context",
+          sharedPlatform: true,
+          exactUrlMatch: false,
+          hostTotalUrlsFound: urlsCount,
+          hostActiveMalwareUrls: activeUrls,
+          urlhausReference:
+            parsedHost.urlhaus_reference ||
+            `https://urlhaus.abuse.ch/host/${encodeURIComponent(targetHost)}/`,
+        };
+        result.reference = result.evidence.urlhausReference;
+        result.details = `Host is a shared multi-tenant platform (${targetHost}). Historical platform abuse reports do not indict this specific URL, and no exact URL listing exists.`;
+        return result;
+      } else {
+        // Dedicated (non-shared) host with recorded malware URLs
+        result.status = activeUrls > 0 ? "suspicious" : "no_match";
+        result.evidence = {
+          matchType: "host_reputation",
+          sharedPlatform: false,
+          exactUrlMatch: false,
+          threat: "host_malware_history",
+          firstSeen: parsedHost.firstseen,
+          totalUrlsFound: urlsCount,
+          activeMalwareUrls: activeUrls,
+          urlhausReference:
+            parsedHost.urlhaus_reference ||
+            `https://urlhaus.abuse.ch/host/${encodeURIComponent(targetHost)}/`,
+        };
+        result.reference = result.evidence.urlhausReference;
+        result.details =
+          activeUrls > 0
+            ? `Host has ${urlsCount} recorded malware URL(s) (${activeUrls} active) on URLhaus. Specific URL is not listed as active malware.`
+            : `Dedicated host has historical URLhaus records (${urlsCount} URLs), but none are currently active.`;
+        return result;
+      }
+    }
+
+    if (parsedHost.query_status === "no_results") {
+      result.status = "no_match";
+      result.details = "No recorded malware campaigns found for URL or host in URLhaus database.";
+      return result;
+    }
+
     result.status = "no_match";
-    result.details = `Query status: ${parsed.query_status || "unknown"}`;
+    result.details = `Query status: ${parsedHost.query_status || "unknown"}`;
     return result;
   } catch (err) {
     if (err.code === "ETIMEDOUT") {
@@ -567,9 +754,14 @@ export async function queryCloudflareSecurityDns(hostname, timeoutMs = 2500) {
     }
 
     if (parsed.Status === 3) {
-      // NXDOMAIN
-      result.status = "no_match";
-      result.details = "Domain does not resolve (NXDOMAIN) under Security DNS.";
+      // NXDOMAIN: Domain does not exist or does not resolve
+      result.status = "no_dns_record";
+      result.evidence = {
+        dnsStatus: 3,
+        statusName: "NXDOMAIN",
+        unresolvable: true,
+      };
+      result.details = "Domain does not resolve in public DNS (NXDOMAIN). No active DNS A/AAAA records found.";
       return result;
     }
 
@@ -590,9 +782,9 @@ export async function queryCloudflareSecurityDns(hostname, timeoutMs = 2500) {
       result.status = "unavailable";
       result.error = err.message || "Failed to reach Cloudflare DNS";
     }
-    return result;
   }
 }
+
 
 /**
  * 3. Google Safe Browsing v4 Adapter
@@ -794,7 +986,10 @@ export function classifyAssessment(heuristicVerdictLevel, heuristicFindings = []
   const providerList = Object.values(providers);
 
   const maliciousProviders = providerList.filter((p) => p.status === "malicious");
+  const suspiciousProviders = providerList.filter((p) => p.status === "suspicious");
+  const hasNoDnsRecord = providerList.some((p) => p.status === "no_dns_record");
   const hasConfirmedMalice = maliciousProviders.length > 0;
+  const hasSuspiciousIntel = suspiciousProviders.length > 0;
 
   const hasHighHeuristic =
     heuristicVerdictLevel === "high" ||
@@ -805,11 +1000,7 @@ export function classifyAssessment(heuristicVerdictLevel, heuristicFindings = []
     heuristicVerdictLevel === "suspicious" ||
     heuristicFindings.some((f) => f.severity === "suspicious" || f.severity === "warning");
 
-  const responsiveProviders = providerList.filter(
-    (p) => p.status === "no_match" || p.status === "malicious"
-  );
-
-  // 1. Confirmed Threat
+  // 1. Confirmed Threat: direct, verified indicator from active threat intelligence
   if (hasConfirmedMalice) {
     const providerNames = maliciousProviders.map((p) => p.providerName).join(", ");
     return {
@@ -823,23 +1014,50 @@ export function classifyAssessment(heuristicVerdictLevel, heuristicFindings = []
     };
   }
 
-  // 2. Suspicious / Heuristic Warning
-  if (hasHighHeuristic || hasSuspiciousHeuristic) {
+  // 2. Unverified / Insufficient Data due to NXDOMAIN: Domain does not exist or does not resolve
+  // Do not classify NXDOMAIN alone as malicious or safe.
+  if (hasNoDnsRecord) {
+    return {
+      category: "Unverified / Insufficient Data",
+      categoryKey: "unverified",
+      badgeLevel: "low",
+      title: "Unverified Destination (Domain Does Not Resolve)",
+      summary: "The target domain does not resolve in public DNS (NXDOMAIN). The destination cannot be verified, accessed, or evaluated against live security services.",
+      confidence: "Limited (Unresolvable Domain)",
+      limitations: "No active DNS records exist for this domain. Reputation and threat status cannot be determined for non-existent or inactive domains.",
+    };
+  }
+
+  // 3. Suspicious / Heuristic Warning: warning signs, deceptive structures, or contextual threat intel
+  if (hasHighHeuristic || hasSuspiciousHeuristic || hasSuspiciousIntel) {
+    let summaryText = "";
+    if (hasHighHeuristic) {
+      summaryText = "Deceptive structural patterns or evasion indicators detected. While not yet listed on active threat feeds, this link exhibits high-risk properties.";
+    } else if (hasSuspiciousIntel) {
+      const suspNames = suspiciousProviders.map((p) => p.providerName).join(", ");
+      summaryText = `Contextual threat intelligence warnings flagged for this destination (${suspNames}), though the specific URL has not been confirmed malicious.`;
+    } else {
+      summaryText = "Structural anomalies or non-standard patterns detected that warrant caution before interacting.";
+    }
+
     return {
       category: "Suspicious / Heuristic Warning",
       categoryKey: "suspicious-warning",
       badgeLevel: hasHighHeuristic ? "high" : "medium",
       title: hasHighHeuristic ? "High-Risk Structural Deception" : "Elevated Caution / Heuristic Warnings",
-      summary: hasHighHeuristic
-        ? "Deceptive structural patterns or evasion indicators detected. While not yet listed on active threat feeds, this link exhibits high-risk properties."
-        : "Structural anomalies or non-standard patterns detected that warrant caution before interacting.",
-      confidence: "Moderate (Static Structural Analysis)",
-      limitations: "Evaluated using structural pattern heuristics. No threat feed matches were found, but absence of blocklist entries does not prove legitimacy.",
+      summary: summaryText,
+      confidence: hasSuspiciousIntel
+        ? "Moderate (Contextual Threat Feeds)"
+        : "Moderate (Static Structural Analysis)",
+      limitations: "Evaluated using structural pattern heuristics and contextual host feeds. No definitive URL blocklist entries were confirmed, but caution is advised.",
     };
   }
 
-  // 3. Unverified / Insufficient Data (clean heuristics, but 0 threat intelligence providers responded or all unconfigured)
-  if (responsiveProviders.length === 0) {
+  // 4. Unverified / Insufficient Data: target could not be evaluated due to unconfigured or unavailable lookups
+  const evaluatedProviders = providerList.filter(
+    (p) => p.status === "no_match" || p.status === "malicious" || p.status === "suspicious"
+  );
+  if (evaluatedProviders.length === 0) {
     return {
       category: "Unverified / Insufficient Data",
       categoryKey: "unverified",
@@ -851,7 +1069,7 @@ export function classifyAssessment(heuristicVerdictLevel, heuristicFindings = []
     };
   }
 
-  // 4. No Obvious Indicators (clean heuristics AND responsive providers reported no match)
+  // 5. No Obvious Indicators: clean heuristics AND responsive providers evaluated the target and found no indicators
   return {
     category: "No Obvious Indicators",
     categoryKey: "no-indicators",
@@ -889,7 +1107,7 @@ export async function inspectUrlTarget(rawUrl, options = {}) {
 
   // 3. Query providers in parallel
   const [urlhausRes, cloudflareRes, safeBrowsingRes, virusTotalRes] = await Promise.all([
-    queryUrlhaus(target.hostname, timeoutMs),
+    queryUrlhaus(target.sanitizedUrl, target.hostname, timeoutMs),
     queryCloudflareSecurityDns(target.hostname, timeoutMs),
     queryGoogleSafeBrowsing(target.sanitizedUrl, timeoutMs),
     queryVirusTotal(target.sanitizedUrl, timeoutMs),

@@ -1328,8 +1328,10 @@ function initUrlChecker() {
   if (!urlInput || !analyzeBtn || !urlResults) return;
 
   let currentAnalysis = null;
+  let activeUrlInspectionId = 0;
 
   function runAnalysis() {
+    const thisInspectionId = ++activeUrlInspectionId;
     const val = urlInput.value;
     if (urlErrorStatus) {
       urlErrorStatus.style.display = "none";
@@ -1472,6 +1474,63 @@ function initUrlChecker() {
 
     urlResults.hidden = false;
 
+    // Check if URL is a client-side execution scheme or pseudo-protocol (no remote network host or DNS)
+    const trimmedVal = val.trim();
+    const schemeMatch = trimmedVal.match(/^([a-zA-Z][a-zA-Z0-9+.-]*):/);
+    const explicitScheme = schemeMatch ? schemeMatch[1].toLowerCase() : null;
+    const isPseudoProtocol = explicitScheme && ["javascript", "data", "vbscript", "file", "blob", "about"].includes(explicitScheme);
+
+    if (isPseudoProtocol) {
+      if (urlProvidersSyncStatus) {
+        urlProvidersSyncStatus.textContent = "External feeds not applicable (client-side pseudo-protocol)";
+      }
+      if (urlProvidersGrid) {
+        urlProvidersGrid.innerHTML = `
+          <div class="url-provider-card">
+            <div class="provider-header">
+              <span class="provider-name">URLhaus (Abuse.ch)</span>
+              <span class="provider-badge" data-status="unconfigured">NOT APPLICABLE</span>
+            </div>
+            <p class="provider-details">Client-side execution scheme has no remote web host to query.</p>
+          </div>
+          <div class="url-provider-card">
+            <div class="provider-header">
+              <span class="provider-name">Cloudflare Security DNS</span>
+              <span class="provider-badge" data-status="unconfigured">NOT APPLICABLE</span>
+            </div>
+            <p class="provider-details">No domain name exists for DNS-over-HTTPS resolution.</p>
+          </div>
+          <div class="url-provider-card">
+            <div class="provider-header">
+              <span class="provider-name">Google Safe Browsing</span>
+              <span class="provider-badge" data-status="unconfigured">NOT APPLICABLE</span>
+            </div>
+            <p class="provider-details">Safe Browsing only evaluates network web targets.</p>
+          </div>
+          <div class="url-provider-card">
+            <div class="provider-header">
+              <span class="provider-name">VirusTotal v3</span>
+              <span class="provider-badge" data-status="unconfigured">NOT APPLICABLE</span>
+            </div>
+            <p class="provider-details">No remote URL destination available for multi-engine scan.</p>
+          </div>
+        `;
+      }
+      if (urlRawEvidenceJson) {
+        urlRawEvidenceJson.textContent = JSON.stringify({
+          target: {
+            rawInput: trimmedVal,
+            protocol: explicitScheme,
+            isPseudoProtocol: true,
+          },
+          notice: `Protocol '${explicitScheme}:' executes within the browser and does not resolve to an external network host.`,
+          localHeuristicVerdict: res.verdict,
+          externalFeeds: "not_applicable",
+        }, null, 2);
+      }
+      return;
+    }
+
     // Dispatch initial local heuristic result to Security Center
     if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
       window.dispatchEvent(new CustomEvent("ciphercheck:urlanalysis", { detail: { analysis: res } }));
@@ -1496,6 +1555,7 @@ function initUrlChecker() {
         return resp.json();
       })
       .then((data) => {
+        if (thisInspectionId !== activeUrlInspectionId) return;
         if (!data || !data.success) return;
 
         currentAnalysis.threatIntelligence = {
@@ -1525,10 +1585,16 @@ function initUrlChecker() {
               ? "MALICIOUS"
               : p.status === "no_match"
               ? "NO MATCH"
+              : p.status === "no_dns_record"
+              ? "NXDOMAIN (NO DNS)"
+              : p.status === "suspicious"
+              ? "SUSPICIOUS"
               : p.status === "unconfigured"
               ? "NOT CONFIGURED"
               : p.status === "timeout"
               ? "TIMEOUT"
+              : p.status === "unavailable"
+              ? "UNAVAILABLE"
               : p.status.toUpperCase();
 
             card.innerHTML = `
@@ -1614,24 +1680,89 @@ function initUrlChecker() {
         }
       })
       .catch((err) => {
+        if (thisInspectionId !== activeUrlInspectionId) return;
+
         console.warn("[CipherCheck] Threat intelligence lookup notice:", err.message);
+        const isSsrf = err.message && (
+          err.message.includes("SSRF") ||
+          err.message.includes("prohibited") ||
+          err.message.includes("Private") ||
+          err.message.includes("Loopback") ||
+          err.message.includes("Link-local") ||
+          err.message.includes("Internal host")
+        );
+        const isRateLimit = err.message && err.message.includes("rate limit");
+
         if (urlProvidersSyncStatus) {
-          urlProvidersSyncStatus.textContent = "Threat feeds unreachable (local heuristics active)";
+          urlProvidersSyncStatus.textContent = isSsrf
+            ? "External feeds skipped (SSRF safety policy)"
+            : isRateLimit
+            ? "Threat lookups rate-limited"
+            : "Threat feeds unreachable (local heuristics active)";
         }
         if (urlVerdictCategoryTag) {
-          urlVerdictCategoryTag.textContent = "Local Heuristics (External Feeds Unavailable)";
+          urlVerdictCategoryTag.textContent = isSsrf
+            ? "Local Heuristics (Private Network Host)"
+            : isRateLimit
+            ? "Local Heuristics (Rate Limit Active)"
+            : "Local Heuristics (External Feeds Unavailable)";
         }
         if (urlVerdictConfidence) {
           urlVerdictConfidence.textContent = "Local Structural Heuristic Analysis Only";
         }
         if (urlVerdictLimitations) {
-          urlVerdictLimitations.textContent = "External threat feeds were unreachable. Verdict relies entirely on local static checks.";
+          urlVerdictLimitations.textContent = isSsrf
+            ? "Target resolves to a private or internal network address. External lookups are prohibited by SSRF safety controls."
+            : "External threat feeds were unreachable. Verdict relies entirely on local static checks.";
         }
+
+        // Terminal provider cards rendering
+        if (urlProvidersGrid) {
+          const badgeText = isSsrf ? "BLOCKED (SSRF)" : isRateLimit ? "RATE LIMITED" : "UNAVAILABLE";
+          const statusAttr = isSsrf ? "unconfigured" : isRateLimit ? "timeout" : "unavailable";
+          const detailText = isSsrf
+            ? "Private, loopback, and local network addresses are excluded from external threat lookups."
+            : isRateLimit
+            ? "Rate limit exceeded. Please wait a moment before requesting further lookups."
+            : "Unable to contact threat intelligence provider.";
+
+          urlProvidersGrid.innerHTML = `
+            <div class="url-provider-card">
+              <div class="provider-header">
+                <span class="provider-name">URLhaus (Abuse.ch)</span>
+                <span class="provider-badge" data-status="${statusAttr}">${badgeText}</span>
+              </div>
+              <p class="provider-details">${detailText}</p>
+            </div>
+            <div class="url-provider-card">
+              <div class="provider-header">
+                <span class="provider-name">Cloudflare Security DNS</span>
+                <span class="provider-badge" data-status="${statusAttr}">${badgeText}</span>
+              </div>
+              <p class="provider-details">${detailText}</p>
+            </div>
+            <div class="url-provider-card">
+              <div class="provider-header">
+                <span class="provider-name">Google Safe Browsing</span>
+                <span class="provider-badge" data-status="${statusAttr}">${badgeText}</span>
+              </div>
+              <p class="provider-details">${detailText}</p>
+            </div>
+            <div class="url-provider-card">
+              <div class="provider-header">
+                <span class="provider-name">VirusTotal v3</span>
+                <span class="provider-badge" data-status="${statusAttr}">${badgeText}</span>
+              </div>
+              <p class="provider-details">${detailText}</p>
+            </div>
+          `;
+        }
+
         if (urlRawEvidenceJson) {
           urlRawEvidenceJson.textContent = JSON.stringify({
-            status: "unavailable",
+            status: isSsrf ? "blocked_ssrf" : isRateLimit ? "rate_limited" : "unavailable",
             error: err.message,
-            notice: "Threat lookup failed; local static heuristics preserved.",
+            notice: "Threat lookup bypassed; local static heuristics preserved.",
           }, null, 2);
         }
       });

@@ -86,7 +86,7 @@ function getSessionId(req) {
 }
 
 
-async function startServer() {
+export async function createApp() {
   try {
     await initDatabase();
   } catch (err) {
@@ -102,7 +102,6 @@ async function startServer() {
     console.log("[CipherCheck SMTP] Email verification and password recovery links will require SMTP configuration.");
   }
 
-  let expressApp = null;
   try {
     const { default: express } = await import("express");
     const app = express();
@@ -581,6 +580,15 @@ async function startServer() {
           });
         }
 
+        const isUnsupportedProtocol = err.message && err.message.includes("not supported for external threat lookup");
+        if (isUnsupportedProtocol) {
+          return res.status(400).json({
+            error: err.message,
+            reason: "Pseudo-protocols (such as javascript: or data:) do not have network hosts or remote DNS records.",
+            unsupportedProtocol: true,
+          });
+        }
+
         console.error("[ThreatIntel] URL inspection error:", err.message);
         return res.status(400).json({
           error: err.message || "Failed to inspect URL target.",
@@ -810,13 +818,17 @@ async function startServer() {
     app.use("/ciphercheck", express.static(staticDir));
     app.get("*", (_req, res) => res.sendFile(path.join(staticDir, "index.html")));
 
-    expressApp = app;
+    return app;
   } catch (err) {
     console.warn("Express not loaded, using built-in http server:", err.message);
+    return null;
   }
+}
 
+export async function startServer() {
+  const expressApp = await createApp();
   if (expressApp) {
-    expressApp.listen(PORT, HOST, () => {
+    return expressApp.listen(PORT, HOST, () => {
       console.log(`CipherCheck Express server running at http://${HOST}:${PORT}`);
     });
   } else {
@@ -853,10 +865,13 @@ async function startServer() {
       });
     });
 
-    server.listen(PORT, HOST, () => {
+    return server.listen(PORT, HOST, () => {
       console.log(`CipherCheck built-in HTTP server running at http://${HOST}:${PORT}`);
     });
   }
 }
 
-startServer();
+const isMain = !process.env.TEST_MODE && process.argv[1] && (path.resolve(process.argv[1]) === fileURLToPath(import.meta.url) || process.argv[1].endsWith("server.js"));
+if (isMain) {
+  startServer();
+}

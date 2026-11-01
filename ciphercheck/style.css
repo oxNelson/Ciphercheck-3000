@@ -2162,6 +2162,8 @@ h1 span {
   border: 1px solid var(--line);
 }
 
+.provider-badge[data-status="no_dns_record"],
+.provider-badge[data-status="suspicious"],
 .provider-badge[data-status="timeout"],
 .provider-badge[data-status="unavailable"],
 .provider-badge[data-status="error"] {

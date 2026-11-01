@@ -10,6 +10,10 @@ import {
   checkThreatIntelRateLimit,
   clearThreatCache,
   inspectUrlTarget,
+  isSharedMultiTenantPlatform,
+  SHARED_MULTI_TENANT_DOMAINS,
+  queryUrlhaus,
+  queryCloudflareSecurityDns,
 } from "../server-threat-intel.js";
 import {
   saveReport,
@@ -359,3 +363,254 @@ describe("6. Database Persistence & Backward Compatibility", () => {
     assert.equal(list.reports[0].threatIntelStatus, "unverified");
   });
 });
+
+describe("7. Verified Threat-Intelligence Corrections & Regression Suite", () => {
+  test("1. https://github.com/torvalds/linux is not flagged as malicious by URLhaus", () => {
+    // Shared multi-tenant platform recognition
+    assert.equal(isSharedMultiTenantPlatform("github.com"), true);
+    assert.equal(isSharedMultiTenantPlatform("raw.githubusercontent.com"), true);
+
+    // Simulated URLhaus response: no exact URL match, but host github.com has historical records
+    const simulatedUrlhausShared = {
+      provider: "urlhaus",
+      providerName: "URLhaus (Abuse.ch)",
+      status: "no_match",
+      details: "Host is a shared multi-tenant platform (github.com). Historical platform abuse reports do not indict this specific URL.",
+      evidence: {
+        matchType: "shared_platform_context",
+        sharedPlatform: true,
+        exactUrlMatch: false,
+        hostTotalUrlsFound: 100,
+        hostActiveMalwareUrls: 12,
+      },
+    };
+
+    const threatIntel = {
+      providers: {
+        urlhaus: simulatedUrlhausShared,
+        cloudflareDns: {
+          provider: "cloudflare_security_dns",
+          providerName: "Cloudflare 1.1.1.2 Security DNS",
+          status: "no_match",
+          details: "Domain resolved normally without security policy intervention.",
+        },
+      },
+    };
+
+    const verdict = classifyAssessment("clean", [], threatIntel);
+    assert.notEqual(verdict.category, "Confirmed Threat");
+    assert.equal(verdict.category, "No Obvious Indicators");
+    assert.equal(verdict.categoryKey, "no-indicators");
+    assert.equal(verdict.badgeLevel, "clean");
+  });
+
+  test("2. Exact URLhaus match continues to contribute malicious evidence", () => {
+    const exactMatchIntel = {
+      providers: {
+        urlhaus: {
+          provider: "urlhaus",
+          providerName: "URLhaus (Abuse.ch)",
+          status: "malicious",
+          details: "Exact URL identified in URLhaus threat feed as malware_download (online).",
+          evidence: {
+            matchType: "exact_url",
+            queryStatus: "ok",
+            urlhausId: "2489123",
+            threat: "malware_download",
+            urlStatus: "online",
+          },
+        },
+        cloudflareDns: {
+          provider: "cloudflare_security_dns",
+          providerName: "Cloudflare 1.1.1.2 Security DNS",
+          status: "no_match",
+        },
+      },
+    };
+
+    const verdict = classifyAssessment("clean", [], exactMatchIntel);
+    assert.equal(verdict.category, "Confirmed Threat");
+    assert.equal(verdict.categoryKey, "confirmed-threat");
+    assert.equal(verdict.badgeLevel, "high");
+    assert.match(verdict.summary, /URLhaus/);
+    assert.match(verdict.confidence, /High \(Verified Threat Intelligence\)/);
+  });
+
+  test("3. Host-level match on shared platforms remains contextual; dedicated host triggers suspicious warning", () => {
+    // Shared platforms return no_match when exact URL is clean
+    assert.equal(isSharedMultiTenantPlatform("gitlab.com"), true);
+    assert.equal(isSharedMultiTenantPlatform("pages.dev"), true);
+    assert.equal(isSharedMultiTenantPlatform("vercel.app"), true);
+    assert.equal(isSharedMultiTenantPlatform("drive.google.com"), true);
+    assert.equal(isSharedMultiTenantPlatform("example.com"), false);
+
+    // Dedicated host with active malware records triggers suspicious warning rather than false Confirmed Threat
+    const dedicatedHostIntel = {
+      providers: {
+        urlhaus: {
+          provider: "urlhaus",
+          providerName: "URLhaus (Abuse.ch)",
+          status: "suspicious",
+          details: "Host has 15 recorded malware URL(s) (3 active) on URLhaus. Specific URL is not listed as active malware.",
+          evidence: {
+            matchType: "host_reputation",
+            sharedPlatform: false,
+            exactUrlMatch: false,
+            activeMalwareUrls: 3,
+          },
+        },
+        cloudflareDns: {
+          provider: "cloudflare_security_dns",
+          providerName: "Cloudflare 1.1.1.2 Security DNS",
+          status: "no_match",
+        },
+      },
+    };
+
+    const verdict = classifyAssessment("clean", [], dedicatedHostIntel);
+    assert.notEqual(verdict.category, "Confirmed Threat");
+    assert.equal(verdict.category, "Suspicious / Heuristic Warning");
+    assert.equal(verdict.categoryKey, "suspicious-warning");
+    assert.equal(verdict.badgeLevel, "medium");
+    assert.match(verdict.summary, /Contextual threat intelligence warnings/);
+  });
+
+  test("4. Cloudflare NXDOMAIN produces an unverified outcome (not safe, not malicious)", () => {
+    const nxdomainIntel = {
+      providers: {
+        urlhaus: {
+          provider: "urlhaus",
+          providerName: "URLhaus (Abuse.ch)",
+          status: "no_match",
+        },
+        cloudflareDns: {
+          provider: "cloudflare_security_dns",
+          providerName: "Cloudflare 1.1.1.2 Security DNS",
+          status: "no_dns_record",
+          details: "Domain does not resolve in public DNS (NXDOMAIN). No active DNS A/AAAA records found.",
+          evidence: {
+            dnsStatus: 3,
+            statusName: "NXDOMAIN",
+            unresolvable: true,
+          },
+        },
+      },
+    };
+
+    const verdict = classifyAssessment("clean", [], nxdomainIntel);
+    assert.equal(verdict.category, "Unverified / Insufficient Data");
+    assert.equal(verdict.categoryKey, "unverified");
+    assert.equal(verdict.badgeLevel, "low");
+    assert.equal(verdict.title, "Unverified Destination (Domain Does Not Resolve)");
+    assert.match(verdict.summary, /does not resolve in public DNS \(NXDOMAIN\)/);
+    assert.match(verdict.limitations, /No active DNS records exist/);
+  });
+
+  test("5. Clean target with coverage retains a no-indicators outcome", () => {
+    const cleanCoverageIntel = {
+      providers: {
+        urlhaus: {
+          provider: "urlhaus",
+          providerName: "URLhaus (Abuse.ch)",
+          status: "no_match",
+          details: "No recorded malware campaigns found for URL or host in URLhaus database.",
+        },
+        cloudflareDns: {
+          provider: "cloudflare_security_dns",
+          providerName: "Cloudflare 1.1.1.2 Security DNS",
+          status: "no_match",
+          details: "Domain resolved normally without security policy intervention.",
+        },
+        virusTotal: {
+          provider: "virustotal",
+          providerName: "VirusTotal v3",
+          status: "no_match",
+          details: "Scanned by 60 engines with 0 malicious detections.",
+        },
+      },
+    };
+
+    const verdict = classifyAssessment("clean", [], cleanCoverageIntel);
+    assert.equal(verdict.category, "No Obvious Indicators");
+    assert.equal(verdict.categoryKey, "no-indicators");
+    assert.equal(verdict.badgeLevel, "clean");
+    assert.equal(verdict.title, "No Obvious Indicators Detected");
+    assert.match(verdict.confidence, /Standard/);
+    assert.match(verdict.limitations, /Absence of detected indicators does NOT establish/);
+  });
+
+  test("6. Conflicting provider results preserve the evidence hierarchy", () => {
+    // Case A: Confirmed malicious overrides NXDOMAIN (e.g. domain taken down after verified malware attack)
+    const maliciousAndNxdomain = {
+      providers: {
+        urlhaus: {
+          provider: "urlhaus",
+          providerName: "URLhaus (Abuse.ch)",
+          status: "malicious",
+          details: "Confirmed malware download payload.",
+        },
+        cloudflareDns: {
+          provider: "cloudflare_security_dns",
+          providerName: "Cloudflare 1.1.1.2 Security DNS",
+          status: "no_dns_record",
+          details: "Domain does not resolve (NXDOMAIN).",
+        },
+      },
+    };
+    const verdictA = classifyAssessment("clean", [], maliciousAndNxdomain);
+    assert.equal(verdictA.category, "Confirmed Threat");
+    assert.equal(verdictA.categoryKey, "confirmed-threat");
+
+    // Case B: NXDOMAIN overrides clean No Match when no confirmed malice exists
+    const nxdomainAndNoMatch = {
+      providers: {
+        urlhaus: {
+          provider: "urlhaus",
+          providerName: "URLhaus (Abuse.ch)",
+          status: "no_match",
+        },
+        cloudflareDns: {
+          provider: "cloudflare_security_dns",
+          providerName: "Cloudflare 1.1.1.2 Security DNS",
+          status: "no_dns_record",
+        },
+      },
+    };
+    const verdictB = classifyAssessment("clean", [], nxdomainAndNoMatch);
+    assert.equal(verdictB.category, "Unverified / Insufficient Data");
+    assert.equal(verdictB.categoryKey, "unverified");
+
+    // Case C: Suspicious contextual intelligence overrides clean No Match
+    const suspiciousAndClean = {
+      providers: {
+        urlhaus: {
+          provider: "urlhaus",
+          providerName: "URLhaus (Abuse.ch)",
+          status: "suspicious",
+          details: "Host malware history.",
+        },
+        cloudflareDns: {
+          provider: "cloudflare_security_dns",
+          providerName: "Cloudflare 1.1.1.2 Security DNS",
+          status: "no_match",
+        },
+      },
+    };
+    const verdictC = classifyAssessment("clean", [], suspiciousAndClean);
+    assert.equal(verdictC.category, "Suspicious / Heuristic Warning");
+    assert.equal(verdictC.categoryKey, "suspicious-warning");
+  });
+
+  test("7. Explicitly identifies and rejects pseudo-protocols (javascript:, data:) for external inspection", () => {
+    assert.throws(
+      () => sanitizeUrlForThreatIntel("javascript:alert(1)"),
+      (err) => err.message.includes("Protocol 'javascript' is not supported")
+    );
+    assert.throws(
+      () => sanitizeUrlForThreatIntel("data:text/html,<b>test</b>"),
+      (err) => err.message.includes("Protocol 'data' is not supported")
+    );
+  });
+});
+
+
