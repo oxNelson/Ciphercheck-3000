@@ -329,41 +329,40 @@ describe("SMTP Integration & End-to-End Email Verification", () => {
     });
   });
 
-  describe("5. Verification URL Construction & 403 Forbidden Prevention", () => {
-    test("transformAppHost maps private ais-dev hosts to public ais-pre hosts", () => {
+  describe("5. Verification & Password Recovery URL Construction", () => {
+    test("transformAppHost preserves active ais-dev hosts without rewriting to ais-pre", () => {
       const devHost = "ais-dev-owl7r4bq4jnsb6d7xo4xig-981323894956.europe-west2.run.app";
-      const expectedPreHost = "ais-pre-owl7r4bq4jnsb6d7xo4xig-981323894956.europe-west2.run.app";
-      assert.equal(transformAppHost(devHost), expectedPreHost);
+      assert.equal(transformAppHost(devHost), devHost);
 
       // Port preservation
-      assert.equal(transformAppHost(`${devHost}:443`), `${expectedPreHost}:443`);
+      assert.equal(transformAppHost(`${devHost}:443`), `${devHost}:443`);
 
-      // Preserves normal production and preview hosts
+      // Preserves normal production, custom and local hosts
       assert.equal(transformAppHost("app.ciphercheck.org"), "app.ciphercheck.org");
-      assert.equal(transformAppHost(expectedPreHost), expectedPreHost);
+      assert.equal(transformAppHost("ais-pre-owl7r4bq4jnsb6d7xo4xig-981323894956.europe-west2.run.app"), "ais-pre-owl7r4bq4jnsb6d7xo4xig-981323894956.europe-west2.run.app");
       assert.equal(transformAppHost("localhost:3000"), "localhost:3000");
     });
 
-    test("sanitizeAppUrl converts ais-dev URLs to public ais-pre preview URLs", () => {
+    test("sanitizeAppUrl preserves ais-dev URLs without rewriting to ais-pre", () => {
       const devUrl = "https://ais-dev-owl7r4bq4jnsb6d7xo4xig-981323894956.europe-west2.run.app";
-      const preUrl = "https://ais-pre-owl7r4bq4jnsb6d7xo4xig-981323894956.europe-west2.run.app";
-      assert.equal(sanitizeAppUrl(devUrl), preUrl);
-      assert.equal(sanitizeAppUrl(`${devUrl}/`), preUrl);
+      assert.equal(sanitizeAppUrl(devUrl), devUrl);
+      assert.equal(sanitizeAppUrl(`${devUrl}/`), devUrl);
       assert.equal(sanitizeAppUrl("https://ciphercheck.org"), "https://ciphercheck.org");
+      assert.equal(sanitizeAppUrl("https://ciphercheck.org/"), "https://ciphercheck.org");
     });
 
-    test("getBaseUrl maps incoming request with ais-dev origin to public ais-pre URL", () => {
+    test("getBaseUrl maps incoming request with ais-dev origin to reachable ais-dev URL", () => {
       const req = {
         headers: {
           origin: "https://ais-dev-owl7r4bq4jnsb6d7xo4xig-981323894956.europe-west2.run.app",
         },
       };
       const url = getBaseUrl(req);
-      assert.equal(url, "https://ais-pre-owl7r4bq4jnsb6d7xo4xig-981323894956.europe-west2.run.app");
-      assert.ok(!url.includes("ais-dev-"), "Link must not contain private ais-dev host that yields 403");
+      assert.equal(url, "https://ais-dev-owl7r4bq4jnsb6d7xo4xig-981323894956.europe-west2.run.app");
+      assert.ok(!url.includes("ais-pre-"), "Link must not rewrite to unprovisioned ais-pre host that yields 404");
     });
 
-    test("getBaseUrl maps incoming x-forwarded-host ais-dev to public ais-pre URL", () => {
+    test("getBaseUrl maps incoming x-forwarded-host ais-dev to reachable ais-dev URL", () => {
       const req = {
         headers: {
           "x-forwarded-host": "ais-dev-owl7r4bq4jnsb6d7xo4xig-981323894956.europe-west2.run.app",
@@ -371,7 +370,8 @@ describe("SMTP Integration & End-to-End Email Verification", () => {
         },
       };
       const url = getBaseUrl(req);
-      assert.equal(url, "https://ais-pre-owl7r4bq4jnsb6d7xo4xig-981323894956.europe-west2.run.app");
+      assert.equal(url, "https://ais-dev-owl7r4bq4jnsb6d7xo4xig-981323894956.europe-west2.run.app");
+      assert.ok(!url.includes("ais-pre-"), "Link must not rewrite to unprovisioned ais-pre host");
     });
 
     test("getBaseUrl prioritizes explicit PUBLIC_URL or SHARED_APP_URL over private origin", () => {
@@ -383,9 +383,81 @@ describe("SMTP Integration & End-to-End Email Verification", () => {
       };
       const url = getBaseUrl(req);
       assert.equal(url, "https://public.ciphercheck.org");
+
+      // Verify SHARED_APP_URL precedence when PUBLIC_URL is absent
+      delete process.env.PUBLIC_URL;
+      process.env.SHARED_APP_URL = "https://shared.ciphercheck.org";
+      assert.equal(getBaseUrl(req), "https://shared.ciphercheck.org");
     });
 
-    test("sendVerificationEmail generates accessible public URL and properly encodes token query", async () => {
+    test("getBaseUrl falls back to APP_URL when request origin is absent or a development console origin", () => {
+      delete process.env.PUBLIC_URL;
+      delete process.env.SHARED_APP_URL;
+      process.env.APP_URL = "https://ais-dev-owl7r4bq4jnsb6d7xo4xig-981323894956.europe-west2.run.app";
+
+      const consoleReq = {
+        headers: {
+          origin: "https://aistudio.google.com",
+          host: "localhost:3000",
+        },
+      };
+      const url = getBaseUrl(consoleReq);
+      assert.equal(url, "https://ais-dev-owl7r4bq4jnsb6d7xo4xig-981323894956.europe-west2.run.app");
+      assert.ok(!url.includes("ais-pre-"), "Must preserve active APP_URL without ais-pre rewriting");
+    });
+
+    test("getBaseUrl handles invalid or missing URL configuration safely", () => {
+      delete process.env.PUBLIC_URL;
+      delete process.env.SHARED_APP_URL;
+      delete process.env.APP_URL;
+      delete process.env.BASE_URL;
+
+      const originalPort = process.env.PORT;
+      delete process.env.PORT;
+      try {
+        const url = getBaseUrl(null);
+        assert.equal(url, "http://localhost:3000");
+      } finally {
+        if (originalPort !== undefined) {
+          process.env.PORT = originalPort;
+        }
+      }
+    });
+
+    test("sendPasswordResetEmail generates accessible reset URL on reachable host and properly encodes reset token", async () => {
+      process.env.SMTP_HOST = "smtp.example.com";
+      process.env.SMTP_USER = "security@ciphercheck.org";
+      process.env.SMTP_PASS = "super-secret-smtp-pass";
+
+      const sentMails = [];
+      setCustomTransporter({
+        sendMail: async (mailOptions) => {
+          sentMails.push(mailOptions);
+          return { messageId: "reset-msg-123" };
+        },
+        verify: async () => true,
+      });
+
+      const token = "reset+token/with=special&chars==";
+      const rawDevUrl = "https://ais-dev-owl7r4bq4jnsb6d7xo4xig-981323894956.europe-west2.run.app";
+
+      await sendPasswordResetEmail("user@example.com", token, rawDevUrl);
+      assert.equal(sentMails.length, 1);
+      const mail = sentMails[0];
+
+      // Verifies active reachable host is preserved and NOT rewritten to 404 ais-pre
+      assert.ok(mail.text.includes("ais-dev-"), "Password reset email text must preserve reachable ais-dev URL");
+      assert.ok(mail.html.includes("ais-dev-"), "Password reset email html must preserve reachable ais-dev URL");
+      assert.ok(!mail.text.includes("ais-pre-"), "Password reset email text must not use unprovisioned ais-pre URL");
+      assert.ok(!mail.html.includes("ais-pre-"), "Password reset email html must not use unprovisioned ais-pre URL");
+
+      // Verifies token encoding and reset URL format
+      const encodedToken = encodeURIComponent(token);
+      assert.ok(mail.text.includes(`/?resetToken=${encodedToken}`));
+      assert.ok(mail.html.includes(`/?resetToken=${encodedToken}`));
+    });
+
+    test("sendVerificationEmail generates accessible verification URL and properly encodes token query", async () => {
       process.env.SMTP_HOST = "smtp.example.com";
       process.env.SMTP_USER = "notifications@ciphercheck.org";
       process.env.SMTP_PASS = "super-secret-smtp-pass";
@@ -406,11 +478,11 @@ describe("SMTP Integration & End-to-End Email Verification", () => {
       assert.equal(sentMails.length, 1);
       const mail = sentMails[0];
 
-      // Verifies dev origin is sanitized to public preview origin
-      assert.ok(!mail.text.includes("ais-dev-"), "Verification email text must not use ais-dev URL");
-      assert.ok(!mail.html.includes("ais-dev-"), "Verification email html must not use ais-dev URL");
-      assert.ok(mail.text.includes("ais-pre-"), "Verification email text must use ais-pre URL");
-      assert.ok(mail.html.includes("ais-pre-"), "Verification email html must use ais-pre URL");
+      // Verifies active reachable host is preserved
+      assert.ok(mail.text.includes("ais-dev-"), "Verification email text must preserve reachable ais-dev URL");
+      assert.ok(mail.html.includes("ais-dev-"), "Verification email html must preserve reachable ais-dev URL");
+      assert.ok(!mail.text.includes("ais-pre-"), "Verification email text must not use unprovisioned ais-pre URL");
+      assert.ok(!mail.html.includes("ais-pre-"), "Verification email html must not use unprovisioned ais-pre URL");
 
       // Verifies token encoding
       const encodedToken = encodeURIComponent(token);

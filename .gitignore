@@ -58,3 +58,15 @@ Thumbs.db
 .env
 .env.local
 .env.*.local
+# AI Studio & Agent runtime metadata
+.conversation/
+.aistudio/
+
+# Generated files & lockfiles
+bun.lock
+
+# Certificates and keys
+*.pem
+*.key
+*.cert
+*.crt

@@ -105,25 +105,12 @@ export function isOriginAllowed(origin, req = null) {
 
 export function transformAppHost(hostname) {
   if (!hostname || typeof hostname !== "string") return hostname;
-  const parts = hostname.trim().split(":");
-  let host = parts[0];
-  const port = parts[1] ? `:${parts[1]}` : "";
-  // Map Google AI Studio private dev host to public shared preview host
-  // e.g. ais-dev-*.run.app -> ais-pre-*.run.app
-  if (/^ais-dev-/i.test(host)) {
-    host = host.replace(/^ais-dev-/i, "ais-pre-");
-  }
-  return `${host}${port}`;
+  return hostname.trim();
 }
 
 export function sanitizeAppUrl(rawUrl) {
   if (!rawUrl || typeof rawUrl !== "string") return rawUrl;
-  let trimmed = rawUrl.trim().replace(/\/+$/, "");
-  // Map private ais-dev origin to public ais-pre preview origin
-  if (/:\/\/ais-dev-/i.test(trimmed)) {
-    trimmed = trimmed.replace(/:\/\/ais-dev-/i, "://ais-pre-");
-  }
-  return trimmed;
+  return rawUrl.trim().replace(/\/+$/, "");
 }
 
 export function getBaseUrl(req = null) {

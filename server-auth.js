@@ -130,6 +130,18 @@ export function resetMemoryStore() {
   memoryUserRecommendations.clear();
 }
 
+export function enableInMemoryFallback() {
+  if (pgPool) {
+    try {
+      pgPool.end();
+    } catch (_) {}
+    pgPool = null;
+  }
+  isPostgresReady = false;
+  dbStatus = { type: "in-memory-fallback", ready: true, persistent: false, error: null };
+  return dbStatus;
+}
+
 export async function initDatabase() {
   const isProduction = process.env.NODE_ENV === "production";
   const databaseUrl = process.env.DATABASE_URL;

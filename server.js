@@ -36,6 +36,7 @@ import {
   getUserRecommendationStatus,
   saveUserRecommendationStatus,
   updateUserRecommendationAction,
+  enableInMemoryFallback,
 } from "./server-auth.js";
 import {
   isSmtpConfigured,
@@ -90,8 +91,9 @@ export async function createApp() {
   try {
     await initDatabase();
   } catch (err) {
-    console.error("[CipherCheck Server] Fatal database initialization failure:", err.message);
-    process.exit(1);
+    console.warn("[CipherCheck Server] Database connection could not be established:", err.message);
+    console.warn("[CipherCheck Server] Running with resilient in-memory fallback store.");
+    enableInMemoryFallback();
   }
 
   const smtpStatus = getSmtpStatus();
